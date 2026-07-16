@@ -16,20 +16,29 @@ class StationListItem {
   });
 }
 
-/// Shared vertical list rendering for both the TuneIn and YouTube search
-/// sections - icon-or-thumbnail + title cards, with loading/empty/error
-/// micro-states matching index.html's station-container/.station-item.
+/// Shared rendering for both the TuneIn and YouTube search sections - with
+/// loading/empty/error micro-states matching index.html's
+/// station-container/.station-item. Renders as a scrollable vertical list by
+/// default, or as a non-scrolling multi-column grid (part of the page's own
+/// scroll) when [gridColumns] is set.
 class StationList extends StatelessWidget {
   final bool loading;
   final String? error;
   final List<StationListItem> items;
+  final int? gridColumns;
 
-  const StationList({super.key, required this.loading, required this.error, required this.items});
+  const StationList({
+    super.key,
+    required this.loading,
+    required this.error,
+    required this.items,
+    this.gridColumns,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxHeight: 340),
+      constraints: gridColumns == null ? const BoxConstraints(maxHeight: 340) : null,
       decoration: BoxDecoration(
         color: const Color(0xFF161616),
         border: Border.all(color: const Color(0xFF2A2A2A)),
@@ -57,6 +66,21 @@ class StationList extends StatelessWidget {
       return const Padding(
         padding: EdgeInsets.all(12),
         child: Text(Strings.nothingFound, style: TextStyle(color: Colors.grey, fontSize: 12)),
+      );
+    }
+    final columns = gridColumns;
+    if (columns != null) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: items.length,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          crossAxisSpacing: 6,
+          mainAxisSpacing: 6,
+          childAspectRatio: 0.85,
+        ),
+        itemBuilder: (context, i) => _StationGridTile(item: items[i]),
       );
     }
     return ListView.builder(
@@ -91,7 +115,7 @@ class _StationTile extends StatelessWidget {
               : null,
           child: Row(
             children: [
-              _icon(),
+              _StationIcon(imageUrl: item.imageUrl, size: 34),
               const SizedBox(width: 12),
               Expanded(child: Text(item.title, overflow: TextOverflow.ellipsis)),
             ],
@@ -100,16 +124,67 @@ class _StationTile extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _icon() {
+class _StationGridTile extends StatelessWidget {
+  final StationListItem item;
+
+  const _StationGridTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: item.isPlaying ? const Color(0xFF16311F) : const Color(0xFF1F1F1F),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: item.onTap,
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: item.isPlaying
+              ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF22C55E), width: 1.5),
+                )
+              : null,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _StationIcon(imageUrl: item.imageUrl, size: 44),
+              const SizedBox(height: 6),
+              Expanded(
+                child: Text(
+                  item.title,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StationIcon extends StatelessWidget {
+  final String? imageUrl;
+  final double size;
+
+  const _StationIcon({required this.imageUrl, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(
-        width: 34,
-        height: 34,
-        child: item.imageUrl != null
+        width: size,
+        height: size,
+        child: imageUrl != null
             ? Image.network(
-                item.imageUrl!,
+                imageUrl!,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const Center(child: Text('📻')),
               )

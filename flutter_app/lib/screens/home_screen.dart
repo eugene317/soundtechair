@@ -170,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onSearch: () => controller.searchRadio(_radioQueryCtrl.text.trim()),
       loading: controller.radioLoading,
       error: controller.radioError,
+      gridColumns: 3,
       items: controller.radioResults
           .map((r) => StationListItem(
                 title: r.name,
@@ -206,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required bool loading,
     required String? error,
     required List<StationListItem> items,
+    int? gridColumns,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -226,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        StationList(loading: loading, error: error, items: items),
+        StationList(loading: loading, error: error, items: items, gridColumns: gridColumns),
       ],
     );
   }
