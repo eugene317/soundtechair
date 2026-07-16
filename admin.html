@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SoundTouch Relay — Server Admin</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Arial, sans-serif;
+    background: #000; color: #eee; margin: 0; padding: 20px 14px 60px;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 10px; max-width: 900px; margin: 0 auto 18px;
+    background: #161616; border-radius: 14px; padding: 10px 16px;
+  }
+  .topbar .icon { font-size: 20px; }
+  .topbar .title { font-weight: 700; font-size: 15px; }
+
+  .section { max-width: 900px; margin: 0 auto 22px; }
+  h3 { font-size: 13px; color: #888; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
+
+  .agent-list { display: flex; flex-direction: column; gap: 10px; }
+  .agent-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 14px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .agent-card .name { font-weight: 700; font-size: 14px; }
+  .agent-card .meta { font-size: 12px; color: #888; margin-top: 4px; }
+  .status-btn {
+    display: flex; align-items: center; gap: 7px; border: none; border-radius: 20px;
+    padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: default; flex-shrink: 0;
+  }
+  .status-btn.online { background: #16311f; color: #22c55e; }
+  .status-btn.offline { background: #311616; color: #f66; }
+  .status-btn .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-btn.online .dot { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .status-btn.offline .dot { background: #f66; }
+
+  .log-container {
+    max-width: 900px; margin: 0 auto; background: #161616; border: 1px solid #2a2a2a;
+    border-radius: 14px; max-height: 420px; overflow-y: auto;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #222; white-space: nowrap; }
+  th { color: #888; font-weight: 700; position: sticky; top: 0; background: #161616; }
+  td.detail { white-space: normal; word-break: break-all; color: #999; }
+  .status-ok { color: #22c55e; }
+  .status-error { color: #f66; }
+  .status-timeout { color: #f0a020; }
+  .status-info { color: #666; }
+
+  .muted { color: #666; font-size: 12px; padding: 12px; text-align: center; }
+
+  .server-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 16px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .server-card .label { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+  .server-card .big-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .big-dot.running { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .big-dot.stopped { background: #f66; }
+  .toggle-btn {
+    border: none; border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .toggle-btn.run { background: #22c55e; color: #000; }
+  .toggle-btn.stop { background: #3a1a1a; color: #f66; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="icon">🖥️</span>
+    <span class="title">SoundTouch Relay — Server Admin</span>
+  </div>
+
+  <div class="section">
+    <h3>Server</h3>
+    <div class="server-card">
+      <div class="label"><span class="big-dot" id="serverDot"></span><span id="serverLabel">Loading...</span></div>
+      <button class="toggle-btn" id="serverToggleBtn" onclick="toggleServer()"></button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Connected Local Apps</h3>
+    <div class="agent-list" id="agentList"></div>
+  </div>
+
+  <div class="section">
+    <h3>Activity Log</h3>
+    <div class="log-container">
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Code</th><th>Action</th><th>Status</th><th>Detail</th></tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+let currentlyRunning = true;
+
+async function toggleServer() {
+  const action = currentlyRunning ? 'stop' : 'start';
+  await fetch('/api/admin/toggle?action=' + action);
+  refresh();
+}
+
+function renderServerStatus(running) {
+  currentlyRunning = running;
+  document.getElementById('serverDot').className = 'big-dot ' + (running ? 'running' : 'stopped');
+  document.getElementById('serverLabel').textContent = running ? 'Server is Online' : 'Server is Offline';
+  const btn = document.getElementById('serverToggleBtn');
+  btn.className = 'toggle-btn ' + (running ? 'stop' : 'run');
+  btn.textContent = running ? '⏹ Stop' : '▶ Run';
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/admin/status');
+    const data = await res.json();
+
+    renderServerStatus(data.serverRunning !== false);
+
+    const agentList = document.getElementById('agentList');
+    agentList.innerHTML = '';
+    const agents = Array.isArray(data.agents) ? data.agents : (data.agents ? [data.agents] : []);
+    if (agents.length === 0) {
+      agentList.innerHTML = '<div class="muted">Walang connected na Local App.</div>';
+    } else {
+      agents.forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'agent-card';
+        const online = !!a.isOnline;
+        div.innerHTML = `
+          <div>
+            <div class="name">${a.speakerName || 'Unknown Speaker'}</div>
+            <div class="meta">IP: ${a.speakerIp || '?'} &nbsp;|&nbsp; Code: ${a.code} &nbsp;|&nbsp; Connected: ${a.connectedAt}</div>
+          </div>
+          <button class="status-btn ${online ? 'online' : 'offline'}">
+            <span class="dot"></span>${online ? 'Online' : 'Offline'}
+          </button>`;
+        agentList.appendChild(div);
+      });
+    }
+
+    const logBody = document.getElementById('logBody');
+    logBody.innerHTML = '';
+    const log = Array.isArray(data.log) ? data.log : (data.log ? [data.log] : []);
+    if (log.length === 0) {
+      logBody.innerHTML = '<tr><td colspan="5" class="muted">Wala pang activity.</td></tr>';
+    } else {
+      log.forEach(entry => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${entry.time}</td>
+          <td>${entry.code}</td>
+          <td>${entry.action}</td>
+          <td class="status-${entry.status}">${entry.status}</td>
+          <td class="detail">${entry.detail || ''}</td>`;
+        logBody.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

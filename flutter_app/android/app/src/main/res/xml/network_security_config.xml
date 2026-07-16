@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every SoundTouch control call (UPnP SOAP on 8091, XML API on 8090, and the
+  WiFi-setup-mode endpoints on 192.0.2.1/192.168.1.1) is plain HTTP against a
+  dynamically-discovered LAN address, not a fixed domain - so this permits
+  cleartext broadly rather than allowlisting specific hosts.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

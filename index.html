@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bose SoundTouch Control</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Arial, sans-serif;
+    background: #000; color: #eee; margin: 0; padding: 20px 14px 60px;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 10px; max-width: 480px; margin: 0 auto 18px;
+    background: #161616; border-radius: 14px; padding: 10px 16px;
+  }
+  .topbar .icon { font-size: 20px; }
+  .topbar .title { font-weight: 700; font-size: 15px; }
+
+  .card {
+    max-width: 480px; margin: 0 auto 20px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 18px; padding: 18px;
+  }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .card-header .name { font-weight: 700; font-size: 16px; }
+  .card-header .badge { font-size: 12px; font-weight: 700; color: #666; }
+  .card-header .badge.on { color: #22c55e; }
+
+  .now-playing { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .now-playing .art {
+    width: 46px; height: 46px; border-radius: 10px; background: #2a2a2a;
+    display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+  }
+  .now-playing .info { font-size: 13px; color: #9aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .transport-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 14px; }
+  .icon-btn {
+    background: #2a2a2a; color: #eee; border: none; border-radius: 12px;
+    width: 50px; height: 46px; font-size: 17px; cursor: pointer; flex-shrink: 0;
+  }
+  .icon-btn:active { background: #3a3a3a; }
+  .icon-btn.stop { background: #3a1a1a; color: #f66; }
+
+  /* ==== Image-based physical panel with invisible overlay buttons ==== */
+  .panel-img-wrap { max-width: 460px; margin: 0 auto 14px; }
+  .panel-img-container { position: relative; background: #1a1a1a; border-radius: 20px; padding: 6px; }
+  .panel-svg { width: 100%; height: auto; display: block; }
+  .hit-overlay { position: absolute; top: 6px; left: 6px; right: 6px; bottom: 6px; }
+  .hit-btn {
+    position: absolute; background: transparent; border: none; border-radius: 10px;
+    cursor: pointer; padding: 0; margin: 0;
+  }
+  .hit-btn:hover { background: rgba(255,255,255,0.12); }
+  .hit-btn:active { background: rgba(34,197,94,0.35); }
+  .hit-btn.on { background: rgba(34,197,94,0.22); }
+  .hit-btn.preset-btn.playing { background: rgba(34,197,94,0.28); box-shadow: inset 0 0 0 2.5px #22c55e; }
+  .hit-btn.preset-btn.saving { background: rgba(240,160,32,0.3); box-shadow: inset 0 0 0 2.5px #f0a020; }
+
+  .overlay-dot {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%;
+    background: transparent; transform: translate(-50%, -50%); pointer-events: none;
+  }
+  .overlay-dot.lit { background: #22c55e; box-shadow: 0 0 8px 2px #22c55e; }
+  .overlay-dot.lit-blue { background: #4a9eff; box-shadow: 0 0 8px 2px #4a9eff; }
+
+  .vol-row { display: flex; align-items: center; gap: 10px; }
+  .vol-row .lbl { font-size: 11px; color: #888; font-weight: 700; letter-spacing: 0.5px; }
+  .vol-row input[type=range] { flex: 1; accent-color: #22c55e; }
+  .vol-row .num { font-size: 12px; color: #888; width: 26px; text-align: right; }
+
+  #status { max-width: 480px; margin: -6px auto 16px; color: #666; font-size: 12px; text-align: center; }
+
+  h3 { max-width: 480px; margin: 0 auto 10px; font-size: 13px; color: #888; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .section { max-width: 480px; margin: 0 auto 22px; }
+
+  .station-container {
+    max-width: 480px; margin: 0 auto; background: #161616; border: 1px solid #2a2a2a;
+    border-radius: 14px; padding: 8px; max-height: 340px; overflow-y: auto;
+  }
+  .station-item {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    background: #1f1f1f; border: none; border-radius: 10px; color: #eee;
+    padding: 10px 12px; margin-bottom: 6px; font-size: 13px; cursor: pointer;
+  }
+  .station-item:last-child { margin-bottom: 0; }
+  .station-item:active { background: #2a2a2a; }
+  .station-item.playing { background: #16311f; box-shadow: inset 0 0 0 1.5px #22c55e; }
+  .station-item .s-icon {
+    font-size: 18px; width: 34px; height: 34px; flex-shrink: 0; border-radius: 8px;
+    background: #2a2a2a; display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .station-item .s-icon img { width: 100%; height: 100%; object-fit: cover; }
+  .station-item .s-title { flex: 1; }
+
+  .search-box { display: flex; gap: 8px; margin-bottom: 10px; }
+  .search-box input {
+    flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2a2a;
+    background: #161616; color: #eee; font-size: 13px;
+  }
+  .search-box button { background: #22c55e; color: #000; border: none; border-radius: 10px; padding: 0 16px; font-weight: 700; cursor: pointer; }
+
+  .custom-row { display: flex; gap: 8px; }
+  .custom-row input {
+    flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2a2a;
+    background: #161616; color: #eee; font-size: 13px;
+  }
+  .custom-row button { background: #2a2a2a; color: #eee; border: none; border-radius: 10px; padding: 0 14px; cursor: pointer; }
+
+  .muted { color: #666; font-size: 12px; padding: 8px 0; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="icon">🔊</span>
+    <span class="title">Bose SoundTouch Control</span>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="name">Bose SoundTouch 3B2568</span>
+      <span class="badge" id="onBadge">OFF</span>
+    </div>
+
+    <div class="now-playing">
+      <div class="art">🎵</div>
+      <div class="info" id="nowPlayingInfo">Loading...</div>
+    </div>
+
+    <div class="transport-row">
+      <button class="icon-btn" onclick="sendKey('PREV_TRACK')">⏮</button>
+      <button class="icon-btn" onclick="sendKey('PLAY')">▶</button>
+      <button class="icon-btn" onclick="sendKey('PAUSE')">⏸</button>
+      <button class="icon-btn" onclick="sendKey('NEXT_TRACK')">⏭</button>
+      <button class="icon-btn stop" onclick="stopPlayback()">⏹</button>
+    </div>
+
+    <!-- Image-based physical panel replica: real reference photo + invisible overlay buttons -->
+    <div class="panel-img-wrap">
+      <div class="panel-img-container">
+        <img class="panel-svg" src="/panel.png" alt="SoundTouch panel">
+
+        <div class="hit-overlay">
+          <button class="hit-btn" id="btnPower" style="left:8.02%;top:13.30%;width:15.21%;height:17.07%;" onclick="sendKey('POWER')"></button>
+          <button class="hit-btn" id="btnLAux" style="left:8.02%;top:30.38%;width:15.21%;height:17.29%;" onclick="toggleAuxBt()"></button>
+
+          <button class="hit-btn preset-btn" data-num="1" style="left:23.79%;top:9.98%;width:17.98%;height:21.73%;"></button>
+          <button class="hit-btn preset-btn" data-num="2" style="left:41.77%;top:9.98%;width:17.98%;height:21.73%;"></button>
+          <button class="hit-btn preset-btn" data-num="3" style="left:59.75%;top:9.98%;width:17.98%;height:21.73%;"></button>
+          <button class="hit-btn preset-btn" data-num="4" style="left:23.79%;top:31.71%;width:17.98%;height:20.40%;"></button>
+          <button class="hit-btn preset-btn" data-num="5" style="left:41.77%;top:31.71%;width:17.98%;height:20.40%;"></button>
+          <button class="hit-btn preset-btn" data-num="6" style="left:59.75%;top:31.71%;width:17.98%;height:20.40%;"></button>
+
+          <button class="hit-btn" style="left:78.28%;top:13.30%;width:15.21%;height:17.07%;" onclick="volStep(5)"></button>
+          <button class="hit-btn" style="left:78.28%;top:30.38%;width:15.21%;height:17.29%;" onclick="volStep(-5)"></button>
+
+          <div class="overlay-dot" id="dotWifi" style="left:22.27%;top:90.91%;"></div>
+          <div class="overlay-dot" id="dotStatus1" style="left:40.39%;top:92.68%;"></div>
+          <div class="overlay-dot" id="dotAux" style="left:60.86%;top:91.80%;"></div>
+          <div class="overlay-dot" id="dotStatus2" style="left:78.56%;top:90.91%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="vol-row">
+      <span class="lbl">VOL</span>
+      <input type="range" id="volSlider" min="0" max="100" value="30" oninput="onVolumeInput(this.value)" onchange="onVolumeChange(this.value)">
+      <span class="num" id="volNum">30</span>
+    </div>
+  </div>
+
+  <div id="status">Tap preset = play &nbsp;|&nbsp; Hold preset 1.5s = save currently playing</div>
+
+  <div class="section">
+    <h3>Internet Radio (TuneIn)</h3>
+    <div class="search-box">
+      <input type="text" id="radioQuery" value="Top 40" placeholder="Maghanap ng radio station..." onkeydown="if(event.key==='Enter') searchRadio()">
+      <button onclick="searchRadio()">Search</button>
+    </div>
+    <div class="station-container" id="radioResults"></div>
+  </div>
+
+  <div class="section">
+    <h3>YouTube Music</h3>
+    <div class="search-box">
+      <input type="text" id="ytQuery" value="Top Hits 2026" placeholder="Maghanap ng kanta o artist..." onkeydown="if(event.key==='Enter') searchYouTube()">
+      <button onclick="searchYouTube()">Search</button>
+    </div>
+    <div class="station-container" id="ytResults"></div>
+  </div>
+
+  <div class="section">
+    <h3>Add Custom Station</h3>
+    <div class="custom-row" style="margin-bottom:8px;">
+      <input type="text" id="customName" placeholder="Station name">
+    </div>
+    <div class="custom-row">
+      <input type="text" id="customUrl" placeholder="Direct stream URL (http://...)">
+      <button onclick="playCustom()">▶ Play</button>
+    </div>
+  </div>
+
+<script>
+// --- Pairing code bootstrap: attach X-Pairing-Code to every fetch() call.
+// server.ps1 (direct mode) ignores this header entirely; relay-server.ps1
+// (online mode) requires and validates it. Same index.html works for both.
+(function () {
+  let code = localStorage.getItem('pairingCode');
+  if (!code) {
+    code = window.prompt('Ilagay ang pairing code mula sa Local App mo:');
+    if (code) localStorage.setItem('pairingCode', code.trim());
+  }
+  const originalFetch = window.fetch;
+  window.fetch = function (url, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers, { 'X-Pairing-Code': localStorage.getItem('pairingCode') || '' });
+    return originalFetch(url, opts);
+  };
+})();
+
+function resetPairingCode() {
+  const code = window.prompt('Ilagay ang bagong pairing code:');
+  if (code) {
+    localStorage.setItem('pairingCode', code.trim());
+    location.reload();
+  }
+}
+
+let currentSource = '';
+let currentAuxToggle = 'AUX';
+let currentStationUrl = '';
+
+function createStationItem(opts) {
+  const btn = document.createElement('button');
+  btn.className = 'station-item';
+  if (opts.url) btn.dataset.url = opts.url;
+  const iconHtml = opts.image
+    ? '<img src="' + opts.image + '" onerror="this.parentElement.textContent=\'📻\'">'
+    : (opts.icon || '📻');
+  btn.innerHTML = '<span class="s-icon">' + iconHtml + '</span><span class="s-title">' + opts.name + '</span>';
+  btn.onclick = opts.onClick;
+  return btn;
+}
+
+async function searchRadio() {
+  const q = document.getElementById('radioQuery').value;
+  if (!q) return;
+  const container = document.getElementById('radioResults');
+  container.innerHTML = '<div class="muted">Naghahanap...</div>';
+  try {
+    const res = await fetch('/api/radio_search?q=' + encodeURIComponent(q));
+    let results = await res.json();
+    if (!Array.isArray(results)) results = results ? [results] : [];
+    container.innerHTML = '';
+    if (results.length === 0) {
+      container.innerHTML = '<div class="muted">Walang nahanap.</div>';
+      return;
+    }
+    results.forEach(r => {
+      container.appendChild(createStationItem({
+        image: r.image, name: r.name,
+        onClick: () => playRadio(r.id, r.name)
+      }));
+    });
+  } catch (e) {
+    container.innerHTML = '<div class="muted">Error: ' + e + '</div>';
+  }
+}
+
+async function playRadio(id, name) {
+  setStatus('Loading ' + name + ' from TuneIn...');
+  try {
+    await fetch('/api/radio_play?id=' + encodeURIComponent(id));
+    setTimeout(refreshStatus, 2000);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+async function searchYouTube() {
+  const q = document.getElementById('ytQuery').value;
+  if (!q) return;
+  const container = document.getElementById('ytResults');
+  container.innerHTML = '<div class="muted">Naghahanap...</div>';
+  try {
+    const res = await fetch('/api/yt_search?q=' + encodeURIComponent(q));
+    let results = await res.json();
+    if (!Array.isArray(results)) results = results ? [results] : [];
+    container.innerHTML = '';
+    if (results.length === 0) {
+      container.innerHTML = '<div class="muted">Walang nahanap.</div>';
+      return;
+    }
+    results.forEach(r => {
+      container.appendChild(createStationItem({
+        image: 'https://i.ytimg.com/vi/' + r.id + '/mqdefault.jpg',
+        name: r.title,
+        onClick: () => playYoutube(r.id, r.title)
+      }));
+    });
+  } catch (e) {
+    container.innerHTML = '<div class="muted">Error: ' + e + '</div>';
+  }
+}
+
+async function playYoutube(id, title) {
+  setStatus('Loading ' + title + ' from YouTube...');
+  try {
+    await fetch('/api/yt_play?id=' + encodeURIComponent(id));
+    setTimeout(refreshStatus, 2000);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+
+async function sendKey(cmd) {
+  setStatus('Sending ' + cmd + '...');
+  try {
+    await fetch('/api/key?cmd=' + encodeURIComponent(cmd));
+    setTimeout(refreshStatus, 500);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+async function toggleAuxBt() {
+  const target = currentAuxToggle === 'AUX' ? 'BLUETOOTH' : 'AUX';
+  setStatus('Switching to ' + target + '...');
+  try {
+    await fetch('/api/select_source?source=' + target);
+    currentAuxToggle = target;
+    setTimeout(refreshStatus, 800);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+async function playStation(url, name) {
+  setStatus('Playing ' + name + '...');
+  try {
+    await fetch('/api/play?url=' + encodeURIComponent(url));
+    setTimeout(refreshStatus, 1500);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+function playCustom() {
+  const name = document.getElementById('customName').value || 'Custom Station';
+  const url = document.getElementById('customUrl').value;
+  if (!url) { setStatus('Maglagay muna ng stream URL'); return; }
+  playStation(url, name);
+}
+
+async function stopPlayback() {
+  setStatus('Stopping...');
+  try {
+    await fetch('/api/stop');
+    setTimeout(refreshStatus, 800);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+async function setVolume(level) {
+  document.getElementById('volNum').textContent = level;
+  setStatus('Setting volume to ' + level + '...');
+  try {
+    await fetch('/api/volume?level=' + level);
+    setTimeout(refreshStatus, 500);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+function volStep(delta) {
+  const slider = document.getElementById('volSlider');
+  let val = Math.max(0, Math.min(100, parseInt(slider.value) + delta));
+  slider.value = val;
+  setVolume(val);
+}
+
+let isDraggingVolume = false;
+let volumeThrottleTimer = null;
+
+function onVolumeInput(level) {
+  isDraggingVolume = true;
+  document.getElementById('volNum').textContent = level;
+  if (volumeThrottleTimer) clearTimeout(volumeThrottleTimer);
+  volumeThrottleTimer = setTimeout(() => {
+    fetch('/api/volume?level=' + level);
+  }, 120);
+}
+
+function onVolumeChange(level) {
+  if (volumeThrottleTimer) { clearTimeout(volumeThrottleTimer); volumeThrottleTimer = null; }
+  setVolume(level).then(() => { isDraggingVolume = false; });
+}
+
+async function playPreset(num) {
+  setStatus('Playing Preset ' + num + '...');
+  try {
+    const res = await fetch('/api/preset_play?num=' + num);
+    if (!res.ok) {
+      setStatus('Walang laman ang Preset ' + num + ' — hawak ito ng 1.5s habang tumutugtog ang isang station para i-save.');
+      return;
+    }
+    setTimeout(refreshStatus, 1500);
+  } catch (e) { setStatus('Error: ' + e); }
+}
+
+async function savePreset(num, btnEl) {
+  setStatus('Saving current station to Preset ' + num + '...');
+  btnEl.classList.add('saving');
+  try {
+    await fetch('/api/save_preset?num=' + num);
+    setStatus('Saved to Preset ' + num + '!');
+    setTimeout(refreshStatus, 1000);
+  } catch (e) { setStatus('Error: ' + e); }
+  finally { btnEl.classList.remove('saving'); }
+}
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  let holdTimer = null;
+  let didSave = false;
+
+  const start = () => {
+    didSave = false;
+    holdTimer = setTimeout(() => {
+      didSave = true;
+      savePreset(btn.dataset.num, btn);
+    }, 1500);
+  };
+  const cancel = () => {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (!didSave) { playPreset(btn.dataset.num); }
+  };
+
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('touchstart', start);
+  btn.addEventListener('mouseup', cancel);
+  btn.addEventListener('touchend', cancel);
+  btn.addEventListener('mouseleave', () => { if (holdTimer) clearTimeout(holdTimer); });
+});
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+async function refreshStatus() {
+  try {
+    const res = await fetch('/api/now_playing');
+    const text = await res.text();
+    const source = /<ContentItem[^>]*source="([^"]*)"/.exec(text);
+    const location = /<ContentItem[^>]*location="([^"]*)"/.exec(text);
+    const track = /<track>([^<]*)<\/track>/.exec(text);
+    const stationName = /<stationName>([^<]*)<\/stationName>/.exec(text);
+    const playStatus = /playStatus="([^"]*)"/.exec(text);
+    currentSource = source ? source[1] : '';
+    currentStationUrl = location ? location[1] : '';
+
+    document.querySelectorAll('.station-item').forEach(el => {
+      el.classList.toggle('playing', !!currentStationUrl && el.dataset.url === currentStationUrl);
+    });
+
+    const isOn = !!currentSource && currentSource !== 'INVALID_SOURCE';
+    document.getElementById('onBadge').textContent = isOn ? 'ON' : 'OFF';
+    document.getElementById('onBadge').classList.toggle('on', isOn);
+    document.getElementById('btnPower').classList.toggle('on', isOn);
+
+    let infoText = currentSource || 'Standby';
+    if (track && track[1]) infoText += ' — ' + track[1];
+    else if (stationName && stationName[1]) infoText += ' — ' + stationName[1];
+    if (playStatus) infoText += ' (' + playStatus[1] + ')';
+    document.getElementById('nowPlayingInfo').textContent = infoText;
+
+    document.getElementById('dotWifi').classList.add('lit');
+    document.getElementById('dotAux').classList.toggle('lit', currentSource === 'AUX');
+    document.getElementById('dotStatus1').classList.toggle('lit-blue', currentSource === 'BLUETOOTH');
+    document.getElementById('dotStatus2').classList.toggle('lit', playStatus && playStatus[1] === 'PLAY_STATE');
+
+    const volRes = await fetch('/api/volume_status');
+    const volText = await volRes.text();
+    const actualVol = /<actualvolume>(\d+)<\/actualvolume>/.exec(volText);
+    if (actualVol && !isDraggingVolume) {
+      document.getElementById('volSlider').value = actualVol[1];
+      document.getElementById('volNum').textContent = actualVol[1];
+    }
+  } catch (e) {
+    document.getElementById('dotWifi').classList.remove('lit');
+    document.getElementById('nowPlayingInfo').textContent = 'Hindi ma-reach ang speaker';
+  }
+}
+
+searchRadio();
+searchYouTube();
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>
