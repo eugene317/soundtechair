@@ -123,7 +123,12 @@ class SpeakerController extends ChangeNotifier {
 
     _displayTickTimer?.cancel();
     _displayTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (nowPlaying?.isPlaying == true && _displayElapsedSeconds != null) {
+      // Deliberately NOT gated on nowPlaying?.isPlaying - the 5-second
+      // resync in refreshStatus() is what keeps this correct either way
+      // (it'll snap back down if this over-ticks during a genuine pause),
+      // and removing the extra condition removes one more thing that could
+      // silently keep this from ever incrementing.
+      if (_displayElapsedSeconds != null) {
         _displayElapsedSeconds = _displayElapsedSeconds! + 1;
         notifyListeners();
       }
@@ -380,6 +385,10 @@ class SpeakerController extends ChangeNotifier {
     final ip = speaker?.ip;
     if (ip == null) return;
     if (activePlaylist != null) _stopPlaylistMode();
+    // Otherwise the display ticker keeps counting up from the PREVIOUS
+    // track's elapsed value for up to 5s, until the next poll resyncs it -
+    // showing a stale/nonsensical progress readout for a new track.
+    _displayElapsedSeconds = null;
     await _withStatus('Loading $label...', () async {
       await SoapClient.play(ip, url, title: title, duration: duration);
       Timer(const Duration(milliseconds: 1500), refreshStatus);
@@ -713,6 +722,9 @@ class SpeakerController extends ChangeNotifier {
     _terminalStreak = 0;
     _ticksSinceCommand = 0;
     _lastElapsedSeconds = null;
+    // Otherwise the display ticker keeps counting up from the PREVIOUS
+    // track's elapsed value for up to 5s, until the next poll resyncs it.
+    _displayElapsedSeconds = null;
     statusMessage = 'Playing: ${track.title}';
     notifyListeners();
     try {
