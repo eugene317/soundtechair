@@ -333,12 +333,12 @@ class SpeakerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> playCustomUrl(String url, String label) async {
+  Future<void> playCustomUrl(String url, String label, {String? title, Duration? duration}) async {
     final ip = speaker?.ip;
     if (ip == null) return;
     if (activePlaylist != null) _stopPlaylistMode();
     await _withStatus('Loading $label...', () async {
-      await SoapClient.play(ip, url);
+      await SoapClient.play(ip, url, title: title, duration: duration);
       Timer(const Duration(milliseconds: 1500), refreshStatus);
     });
   }
@@ -380,7 +380,12 @@ class SpeakerController extends ChangeNotifier {
 
   Future<void> playYoutubeResult(YoutubeResult r) async {
     final url = StreamUrlBuilder.youtube(settings.streamProxyUrl, r.id);
-    await playCustomUrl(url, '${r.title} (YouTube)');
+    await playCustomUrl(
+      url,
+      '${r.title} (YouTube)',
+      title: r.title,
+      duration: r.durationSeconds != null ? Duration(seconds: r.durationSeconds!) : null,
+    );
   }
 
   /// Whether tapping a YouTube Music result should auto-advance through the
@@ -412,7 +417,12 @@ class SpeakerController extends ChangeNotifier {
   Future<void> playYoutubeResultAt(int index) async {
     if (index < 0 || index >= youtubeResults.length) return;
     final tracks = youtubeResults
-        .map((r) => PlaylistTrack.youtube(videoId: r.id, title: r.title, imageUrl: r.thumbnailUrl))
+        .map((r) => PlaylistTrack.youtube(
+              videoId: r.id,
+              title: r.title,
+              imageUrl: r.thumbnailUrl,
+              durationSeconds: r.durationSeconds,
+            ))
         .toList();
     final ephemeralPlaylist = Playlist(
       id: _ephemeralYoutubeResultsPlaylistId,
@@ -480,7 +490,12 @@ class SpeakerController extends ChangeNotifier {
   }
 
   Future<void> addYoutubeResultToPlaylist(String playlistId, YoutubeResult result) async {
-    final track = PlaylistTrack.youtube(videoId: result.id, title: result.title, imageUrl: result.thumbnailUrl);
+    final track = PlaylistTrack.youtube(
+      videoId: result.id,
+      title: result.title,
+      imageUrl: result.thumbnailUrl,
+      durationSeconds: result.durationSeconds,
+    );
     playlists = playlists.map((p) {
       if (p.id != playlistId) return p;
       return p.copyWith(tracks: [...p.tracks, track]);
@@ -621,7 +636,12 @@ class SpeakerController extends ChangeNotifier {
     statusMessage = 'Playing: ${track.title}';
     notifyListeners();
     try {
-      await SoapClient.play(ip, url);
+      await SoapClient.play(
+        ip,
+        url,
+        title: track.title,
+        duration: track.durationMs != null ? Duration(milliseconds: track.durationMs!) : null,
+      );
     } catch (e) {
       statusMessage = 'Error: $e';
       notifyListeners();
@@ -790,6 +810,20 @@ class SpeakerController extends ChangeNotifier {
         await playlistNext();
       }
       return;
+    }
+
+    // When we actually told the speaker the track's real duration (via
+    // DIDL-Lite metadata in SoapClient.play), now_playing's total is real -
+    // reaching it is exact and immediate, no heuristic/debounce needed at
+    // all. -1 second of slack accounts for polling only every 5s (we might
+    // observe elapsed a couple seconds shy of total on the very last poll
+    // before it naturally would have hit exactly total).
+    if (nowPlaying?.hasKnownDuration == true && elapsed != null) {
+      final total = nowPlaying!.totalSeconds!;
+      if (elapsed >= total - 1) {
+        await playlistNext();
+        return;
+      }
     }
 
     // Elapsed time actually advancing since the last poll is the strongest

@@ -50,6 +50,33 @@ class SoapClient {
     return '';
   }
 
+  /// Empty string when neither title nor duration is given, matching the
+  /// original always-empty CurrentURIMetaData exactly - only builds real
+  /// DIDL-Lite when a caller actually has something to offer.
+  static String _buildDidlLiteMetadata({required String streamUrl, String? title, Duration? duration}) {
+    if (title == null && duration == null) return '';
+    final escapedTitle = _escapeXml(title ?? 'Unknown');
+    final escapedUrl = _escapeXml(streamUrl);
+    final durationAttr = duration != null ? ' duration="${_formatDuration(duration)}"' : '';
+    return '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+        '<item id="1" parentID="0" restricted="1">'
+        '<dc:title>$escapedTitle</dc:title>'
+        '<upnp:class>object.item.audioItem.musicTrack</upnp:class>'
+        '<res protocolInfo="http-get:*:audio/mpeg:*"$durationAttr>$escapedUrl</res>'
+        '</item>'
+        '</DIDL-Lite>';
+  }
+
+  /// UPnP's expected res-duration format: "H:MM:SS.mmm".
+  static String _formatDuration(Duration d) {
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    final seconds = d.inSeconds.remainder(60);
+    return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}.000';
+  }
+
   static String _escapeXml(String value) => value
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
@@ -57,15 +84,24 @@ class SoapClient {
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&apos;');
 
-  static Future<void> play(String speakerIp, String streamUrl) async {
+  /// [title]/[duration] are optional - when omitted, CurrentURIMetaData stays
+  /// completely empty (the original, proven-working behavior for radio,
+  /// presets, and custom URLs). When provided, builds real DIDL-Lite metadata
+  /// so the speaker actually knows the track's duration (by default it
+  /// doesn't - the speaker reports total=0 for anything played this way
+  /// unless we tell it otherwise), which is what lets now_playing report a
+  /// real elapsed/total instead of just an ever-climbing elapsed counter.
+  static Future<void> play(String speakerIp, String streamUrl, {String? title, Duration? duration}) async {
     final escapedUrl = _escapeXml(streamUrl);
+    final metadata = _buildDidlLiteMetadata(streamUrl: streamUrl, title: title, duration: duration);
+    final escapedMetadata = _escapeXml(metadata);
     final setUriBody = '''<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
     <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
       <InstanceID>0</InstanceID>
       <CurrentURI>$escapedUrl</CurrentURI>
-      <CurrentURIMetaData></CurrentURIMetaData>
+      <CurrentURIMetaData>$escapedMetadata</CurrentURIMetaData>
     </u:SetAVTransportURI>
   </s:Body>
 </s:Envelope>''';

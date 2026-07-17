@@ -13,12 +13,20 @@ class YoutubeResult {
   final String title;
   final String id;
 
-  const YoutubeResult({required this.title, required this.id});
+  /// Null if yt-dlp couldn't report a duration for this result (rare, but
+  /// happens for some live/unusual videos) - callers must handle this as
+  /// "duration unknown", not assume it's always present.
+  final int? durationSeconds;
+
+  const YoutubeResult({required this.title, required this.id, this.durationSeconds});
 
   String get thumbnailUrl => 'https://i.ytimg.com/vi/$id/mqdefault.jpg';
 
-  factory YoutubeResult.fromJson(Map<String, dynamic> json) =>
-      YoutubeResult(title: json['title'] as String? ?? '', id: json['id'] as String? ?? '');
+  factory YoutubeResult.fromJson(Map<String, dynamic> json) => YoutubeResult(
+        title: json['title'] as String? ?? '',
+        id: json['id'] as String? ?? '',
+        durationSeconds: json['durationSeconds'] as int?,
+      );
 }
 
 class RadioResult {

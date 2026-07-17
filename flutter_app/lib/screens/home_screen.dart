@@ -220,6 +220,22 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          if (controller.nowPlaying?.progressText != null) ...[
+            const SizedBox(height: 8),
+            if (controller.nowPlaying!.progressFraction != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: controller.nowPlaying!.progressFraction,
+                  minHeight: 4,
+                  backgroundColor: const Color(0xFF2A2A2A),
+                  valueColor: const AlwaysStoppedAnimation(Color(0xFF22C55E)),
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(controller.nowPlaying!.progressText!,
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ],
         ],
       ),
     );

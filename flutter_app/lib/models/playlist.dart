@@ -44,14 +44,19 @@ class PlaylistTrack {
     required this.addedAt,
   });
 
-  factory PlaylistTrack.youtube({required String videoId, required String title, String? imageUrl}) {
+  factory PlaylistTrack.youtube({
+    required String videoId,
+    required String title,
+    String? imageUrl,
+    int? durationSeconds,
+  }) {
     return PlaylistTrack(
       id: _generateId(),
       source: TrackSource.youtube,
       sourceId: videoId,
       title: title,
       imageUrl: imageUrl,
-      durationMs: null,
+      durationMs: durationSeconds == null ? null : durationSeconds * 1000,
       addedAt: DateTime.now().millisecondsSinceEpoch,
     );
   }

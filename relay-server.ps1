@@ -61,11 +61,17 @@ $restHandlerScript = {
 
     function Search-YouTube {
         param([string]$Query, [int]$Count = 8)
-        $raw = & $YtDlpPath "ytsearch${Count}:$Query" --flat-playlist --print "%(title)s|||%(id)s" --no-warnings 2>$null
+        # Confirmed via direct test (2026-07-17): --flat-playlist DOES include
+        # duration for YouTube search results (it's part of the search-results
+        # page data, not a full per-video extraction), so this stays fast.
+        $raw = & $YtDlpPath "ytsearch${Count}:$Query" --flat-playlist --print "%(title)s|||%(id)s|||%(duration)s" --no-warnings 2>$null
         $results = @()
         foreach ($line in $raw) {
-            if ($line -match "^(.*)\|\|\|(.+)$") {
-                $results += [PSCustomObject]@{ title = $matches[1]; id = $matches[2] }
+            if ($line -match "^(.*)\|\|\|([^|]+)\|\|\|([^|]+)$") {
+                $durationSeconds = $null
+                $parsedDuration = 0
+                if ([int]::TryParse($matches[3], [ref]$parsedDuration)) { $durationSeconds = $parsedDuration }
+                $results += [PSCustomObject]@{ title = $matches[1]; id = $matches[2]; durationSeconds = $durationSeconds }
             }
         }
         return $results
