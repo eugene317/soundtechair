@@ -5,164 +5,162 @@ import 'package:provider/provider.dart';
 
 import '../state/speaker_controller.dart';
 
-/// Percentage-based hitbox positions, copied 1:1 from index.html's inline
-/// styles (left/top/width/height, all % of the panel image's own box).
-class _Rect {
-  final double left, top, width, height;
-  const _Rect(this.left, this.top, this.width, this.height);
-}
-
-const _powerRect = _Rect(8.02, 13.30, 15.21, 17.07);
-const _lAuxRect = _Rect(8.02, 30.38, 15.21, 17.29);
-const _volUpRect = _Rect(78.28, 13.30, 15.21, 17.07);
-const _volDownRect = _Rect(78.28, 30.38, 15.21, 17.29);
-
-const _presetRects = {
-  '1': _Rect(23.79, 9.98, 17.98, 21.73),
-  '2': _Rect(41.77, 9.98, 17.98, 21.73),
-  '3': _Rect(59.75, 9.98, 17.98, 21.73),
-  '4': _Rect(23.79, 31.71, 17.98, 20.40),
-  '5': _Rect(41.77, 31.71, 17.98, 20.40),
-  '6': _Rect(59.75, 31.71, 17.98, 20.40),
-};
-
-const _dotWifi = Offset(22.27, 90.91);
-const _dotStatus1 = Offset(40.39, 92.68);
-const _dotAux = Offset(60.86, 91.80);
-const _dotStatus2 = Offset(78.56, 90.91);
-
+/// Generic, model-agnostic control surface. Previously this drew a
+/// photorealistic image of one specific SoundTouch 10's top panel with
+/// invisible tap-zones placed at percentages matching that exact model's
+/// button layout - correct only for that one physical device, and wrong
+/// for any other SoundTouch model (10/20/30/Wireless Link/etc.) a
+/// different user might have. Presets are a protocol-level feature (keys
+/// 1-6 over the XML API) present on every model regardless of how many
+/// physical preset buttons it has, so a plain 6-slot grid stays universal.
 class PanelControl extends StatelessWidget {
   const PanelControl({super.key});
 
-  static const _imageAspectRatio = 723 / 451;
+  // Caps the panel's width so the Expanded toggle buttons and the preset
+  // grid stop scaling linearly with window width on tablet/desktop-sized
+  // windows (e.g. the app's documented 1280px target). Without this, the
+  // Row/Expanded/AspectRatio layout below grows unbounded since neither
+  // this widget nor any ancestor (home_screen.dart's player page) applies
+  // a max width, producing disproportionately large controls relative to
+  // the fixed 44x44 volume-step buttons in the same row. At narrow widths
+  // (down to the 344px device target) this constraint is always looser
+  // than the width actually available, so it has no effect there.
+  static const double _maxWidth = 480;
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: _imageAspectRatio,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          return Stack(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxWidth),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(16)),
+          child: Column(
             children: [
-              Image.asset('assets/panel.png', fit: BoxFit.fill, width: w, height: h),
-              _hitButton(context, _powerRect, w, h, onTap: () => context.read<SpeakerController>().sendKey('POWER'), isOn: (c) => c.nowPlaying?.isOn ?? false),
-              _hitButton(context, _lAuxRect, w, h, onTap: () => context.read<SpeakerController>().toggleAuxSource()),
-              _hitButton(context, _volUpRect, w, h, onTap: () => context.read<SpeakerController>().volStep(5)),
-              _hitButton(context, _volDownRect, w, h, onTap: () => context.read<SpeakerController>().volStep(-5)),
-              for (final entry in _presetRects.entries) _presetButton(context, entry.key, entry.value, w, h),
-              _dot(_dotWifi, w, h, litOf: (c) => c.speakerReachable, color: const Color(0xFF22C55E)),
-              _dot(_dotAux, w, h, litOf: (c) => c.nowPlaying?.source == 'AUX', color: const Color(0xFF22C55E)),
-              _dot(_dotStatus1, w, h, litOf: (c) => c.nowPlaying?.source == 'BLUETOOTH', color: const Color(0xFF4A9EFF)),
-              _dot(_dotStatus2, w, h, litOf: (c) => c.nowPlaying?.isPlaying ?? false, color: const Color(0xFF22C55E)),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ToggleButton(
+                      icon: Icons.power_settings_new,
+                      label: 'Power',
+                      isOn: (c) => c.nowPlaying?.isOn ?? false,
+                      onTap: (c) => c.sendKey('POWER'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _ToggleButton(
+                      icon: Icons.input,
+                      label: 'Aux',
+                      isOn: (c) => c.nowPlaying?.source == 'AUX',
+                      onTap: (c) => c.toggleAuxSource(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _VolStepButton(icon: Icons.volume_down, delta: -5),
+                  const SizedBox(width: 8),
+                  _VolStepButton(icon: Icons.volume_up, delta: 5),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('PRESETS', style: TextStyle(fontSize: 11, color: Colors.grey, letterSpacing: 1)),
+              ),
+              const SizedBox(height: 6),
+              Row(children: [
+                for (final n in ['1', '2', '3']) ...[
+                  Expanded(child: _PresetButton(num: n)),
+                  if (n != '3') const SizedBox(width: 8),
+                ],
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                for (final n in ['4', '5', '6']) ...[
+                  Expanded(child: _PresetButton(num: n)),
+                  if (n != '6') const SizedBox(width: 8),
+                ],
+              ]),
             ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _hitButton(
-    BuildContext context,
-    _Rect r,
-    double w,
-    double h, {
-    required VoidCallback onTap,
-    bool Function(SpeakerController c)? isOn,
-  }) {
-    return Positioned(
-      left: r.left / 100 * w,
-      top: r.top / 100 * h,
-      width: r.width / 100 * w,
-      height: r.height / 100 * h,
-      child: Consumer<SpeakerController>(
-        builder: (context, controller, _) {
-          final on = isOn?.call(controller) ?? false;
-          return _HitBox(onTap: onTap, color: on ? const Color(0x3822C55E) : null);
-        },
-      ),
-    );
-  }
-
-  Widget _presetButton(BuildContext context, String num, _Rect r, double w, double h) {
-    return Positioned(
-      left: r.left / 100 * w,
-      top: r.top / 100 * h,
-      width: r.width / 100 * w,
-      height: r.height / 100 * h,
-      child: _PresetHitBox(presetNum: num),
-    );
-  }
-
-  Widget _dot(
-    Offset pos,
-    double w,
-    double h, {
-    required bool Function(SpeakerController c) litOf,
-    required Color color,
-  }) {
-    const size = 10.0;
-    return Positioned(
-      left: pos.dx / 100 * w - size / 2,
-      top: pos.dy / 100 * h - size / 2,
-      width: size,
-      height: size,
-      child: Consumer<SpeakerController>(
-        builder: (context, controller, _) {
-          final lit = litOf(controller);
-          return Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: lit ? color : Colors.transparent,
-              boxShadow: lit ? [BoxShadow(color: color, blurRadius: 6, spreadRadius: 1)] : null,
-            ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 }
 
-class _HitBox extends StatefulWidget {
-  final VoidCallback onTap;
-  final Color? color;
+class _ToggleButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool Function(SpeakerController) isOn;
+  final void Function(SpeakerController) onTap;
 
-  const _HitBox({required this.onTap, this.color});
-
-  @override
-  State<_HitBox> createState() => _HitBoxState();
-}
-
-class _HitBoxState extends State<_HitBox> {
-  bool _pressed = false;
+  const _ToggleButton({required this.icon, required this.label, required this.isOn, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: Container(
-        color: _pressed ? const Color(0x5922C55E) : (widget.color ?? Colors.transparent),
+    return Consumer<SpeakerController>(
+      builder: (context, controller, _) {
+        final on = isOn(controller);
+        return Material(
+          color: on ? const Color(0xFF16311F) : const Color(0xFF232323),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => onTap(controller),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 20, color: on ? const Color(0xFF22C55E) : Colors.white),
+                  const SizedBox(height: 2),
+                  Text(label, style: TextStyle(fontSize: 10, color: on ? const Color(0xFF22C55E) : Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _VolStepButton extends StatelessWidget {
+  final IconData icon;
+  final int delta;
+
+  const _VolStepButton({required this.icon, required this.delta});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF232323),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => context.read<SpeakerController>().volStep(delta),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Icon(icon, size: 20, color: Colors.white),
+        ),
       ),
     );
   }
 }
 
-/// Preset button gesture: tap-to-play vs hold-1500ms-to-save, timing ported
-/// exactly from index.html's mousedown/touchstart handlers.
-class _PresetHitBox extends StatefulWidget {
-  final String presetNum;
+/// Preset gesture: tap-to-play vs hold-1500ms-to-save, unchanged from the
+/// original image-based hitbox implementation.
+class _PresetButton extends StatefulWidget {
+  final String num;
 
-  const _PresetHitBox({required this.presetNum});
+  const _PresetButton({required this.num});
 
   @override
-  State<_PresetHitBox> createState() => _PresetHitBoxState();
+  State<_PresetButton> createState() => _PresetButtonState();
 }
 
-class _PresetHitBoxState extends State<_PresetHitBox> {
+class _PresetButtonState extends State<_PresetButton> {
   Timer? _holdTimer;
   bool _didSave = false;
   bool _pressed = false;
@@ -172,7 +170,7 @@ class _PresetHitBoxState extends State<_PresetHitBox> {
     _didSave = false;
     _holdTimer = Timer(const Duration(milliseconds: 1500), () {
       _didSave = true;
-      context.read<SpeakerController>().savePreset(widget.presetNum);
+      context.read<SpeakerController>().savePreset(widget.num);
     });
   }
 
@@ -181,7 +179,7 @@ class _PresetHitBoxState extends State<_PresetHitBox> {
     _holdTimer = null;
     setState(() => _pressed = false);
     if (triggerPlay && !_didSave) {
-      context.read<SpeakerController>().playPreset(widget.presetNum);
+      context.read<SpeakerController>().playPreset(widget.num);
     }
   }
 
@@ -195,25 +193,37 @@ class _PresetHitBoxState extends State<_PresetHitBox> {
   Widget build(BuildContext context) {
     return Consumer<SpeakerController>(
       builder: (context, controller, _) {
-        final playing = controller.isPresetPlaying(widget.presetNum);
-        final saving = controller.savingPresetNums.contains(widget.presetNum);
-        Color? overlayColor;
-        Border? border;
+        final playing = controller.isPresetPlaying(widget.num);
+        final saving = controller.savingPresetNums.contains(widget.num);
+        Color fill = const Color(0xFF232323);
+        Color border = Colors.transparent;
+        Color text = Colors.white;
         if (saving) {
-          overlayColor = const Color(0x4DF0A020);
-          border = Border.all(color: const Color(0xFFF0A020), width: 2.5);
+          fill = const Color(0x33F0A020);
+          border = const Color(0xFFF0A020);
+          text = const Color(0xFFF0A020);
         } else if (playing) {
-          overlayColor = const Color(0x3822C55E);
-          border = Border.all(color: const Color(0xFF22C55E), width: 2.5);
+          fill = const Color(0x2222C55E);
+          border = const Color(0xFF22C55E);
+          text = const Color(0xFF22C55E);
         } else if (_pressed) {
-          overlayColor = const Color(0x5922C55E);
+          fill = const Color(0x5922C55E);
         }
-        return GestureDetector(
-          onTapDown: (_) => _start(),
-          onTapUp: (_) => _cancel(),
-          onTapCancel: () => _cancel(triggerPlay: false),
-          child: Container(
-            decoration: BoxDecoration(color: overlayColor, border: border),
+        return AspectRatio(
+          aspectRatio: 1.4,
+          child: GestureDetector(
+            onTapDown: (_) => _start(),
+            onTapUp: (_) => _cancel(),
+            onTapCancel: () => _cancel(triggerPlay: false),
+            child: Container(
+              decoration: BoxDecoration(
+                color: fill,
+                border: Border.all(color: border, width: 2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Text(widget.num, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: text)),
+            ),
           ),
         );
       },

@@ -257,6 +257,23 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
           '(usually named "Bose SoundTouch XXXXXX", no password). '
           'If asked "No internet, stay connected?", choose "Yes/Stay Connected".',
         ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(color: const Color(0xFF1F1F1F), borderRadius: BorderRadius.circular(12)),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.speaker, size: 30, color: Colors.grey),
+              SizedBox(width: 10),
+              Icon(Icons.wifi, size: 18, color: Color(0xFF22C55E)),
+              SizedBox(width: 10),
+              Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
+              SizedBox(width: 10),
+              Icon(Icons.smartphone, size: 26, color: Colors.white),
+            ],
+          ),
+        ),
         const SizedBox(height: 24),
         ElevatedButton(onPressed: _checkSetupMode, child: const Text('I\'m Connected — Continue')),
       ],
