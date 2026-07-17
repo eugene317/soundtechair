@@ -441,25 +441,28 @@ class SpeakerController extends ChangeNotifier {
 
   void toggleYoutubeAutoPlayNext() {
     youtubeAutoPlayNext = !youtubeAutoPlayNext;
-    // Turning it off must also stop an already-running ephemeral-playlist
-    // auto-advance - flipping this flag alone doesn't touch activePlaylist,
-    // so without this the poll-based state machine would keep advancing
-    // through search results even after the toggle looks "off" in the UI.
-    if (!youtubeAutoPlayNext && activePlaylist?.id == _ephemeralYoutubeResultsPlaylistId) {
-      _stopPlaylistMode();
+    if (!youtubeAutoPlayNext) {
+      // Turning it off must also stop an already-running ephemeral-playlist
+      // auto-advance - flipping this flag alone doesn't touch activePlaylist,
+      // so without this the poll-based state machine would keep advancing
+      // through search results even after the toggle looks "off" in the UI.
+      if (activePlaylist?.id == _ephemeralYoutubeResultsPlaylistId) {
+        _stopPlaylistMode();
+      }
+    } else {
+      // Turning it ON while a YouTube Music result is already playing (it
+      // was started via the plain one-shot playYoutubeResult path, before
+      // the toggle was on) should start auto-advance for THAT track once it
+      // ends - not just for whatever gets tapped next.
+      _adoptCurrentlyPlayingYoutubeResult();
     }
     notifyListeners();
   }
 
   static const _ephemeralYoutubeResultsPlaylistId = '_ephemeral_youtube_results';
 
-  /// Plays youtubeResults[index], auto-advancing through the rest of the
-  /// current search results afterward (as long as youtubeAutoPlayNext stays
-  /// on and the results list itself doesn't change - a fresh search builds a
-  /// new ephemeral playlist next time this is called).
-  Future<void> playYoutubeResultAt(int index) async {
-    if (index < 0 || index >= youtubeResults.length) return;
-    final tracks = youtubeResults
+  List<PlaylistTrack> _buildEphemeralYoutubeTracks() {
+    return youtubeResults
         .map((r) => PlaylistTrack.youtube(
               videoId: r.id,
               title: r.title,
@@ -467,14 +470,48 @@ class SpeakerController extends ChangeNotifier {
               durationSeconds: r.durationSeconds,
             ))
         .toList();
-    final ephemeralPlaylist = Playlist(
-      id: _ephemeralYoutubeResultsPlaylistId,
-      name: 'YouTube Music',
-      createdAt: 0,
-      updatedAt: 0,
-      tracks: tracks,
-    );
+  }
+
+  Playlist _buildEphemeralYoutubePlaylist(List<PlaylistTrack> tracks) => Playlist(
+        id: _ephemeralYoutubeResultsPlaylistId,
+        name: 'YouTube Music',
+        createdAt: 0,
+        updatedAt: 0,
+        tracks: tracks,
+      );
+
+  /// Plays youtubeResults[index], auto-advancing through the rest of the
+  /// current search results afterward (as long as youtubeAutoPlayNext stays
+  /// on and the results list itself doesn't change - a fresh search builds a
+  /// new ephemeral playlist next time this is called).
+  Future<void> playYoutubeResultAt(int index) async {
+    if (index < 0 || index >= youtubeResults.length) return;
+    final ephemeralPlaylist = _buildEphemeralYoutubePlaylist(_buildEphemeralYoutubeTracks());
     await playPlaylistFrom(ephemeralPlaylist, index);
+  }
+
+  /// Starts tracking an already-playing YouTube Music result as the active
+  /// ephemeral-playlist entry, WITHOUT re-issuing SetAVTransportURI/Play
+  /// (it's already playing - restarting it from 0 would be a jarring UX
+  /// regression just for flipping a switch). No-ops if now_playing's
+  /// location doesn't match anything in the current search results (e.g.
+  /// nothing is playing, or it's a radio station/preset/custom URL instead).
+  void _adoptCurrentlyPlayingYoutubeResult() {
+    final loc = nowPlaying?.location;
+    if (loc == null || !settings.isConfigured) return;
+    final matchIndex =
+        youtubeResults.indexWhere((r) => StreamUrlBuilder.youtube(settings.streamProxyUrl, r.id) == loc);
+    if (matchIndex == -1) return;
+
+    final tracks = _buildEphemeralYoutubeTracks();
+    activePlaylist = _buildEphemeralYoutubePlaylist(tracks);
+    _activeTrackId = tracks[matchIndex].id;
+    playlistPaused = false;
+    _lastCommandedLocation = loc;
+    _confirmedStarted = nowPlaying?.isPlaying ?? false;
+    _terminalStreak = 0;
+    _ticksSinceCommand = 0;
+    _lastElapsedSeconds = nowPlaying?.elapsedSeconds;
   }
 
   bool isRadioPlaying(RadioResult r) {
