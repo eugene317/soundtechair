@@ -73,8 +73,8 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       unawaited(_scanNetworks());
     } else {
       setState(() {
-        _error = 'Hindi maabot ang speaker sa setup mode. Siguraduhing naka-connect ang phone mo sa '
-            'temporary WiFi ng speaker (hal. "Bose SoundTouch XXXXXX"), tapos subukan ulit.';
+        _error = 'Could not reach the speaker in setup mode. Make sure your phone is connected to the '
+            'speaker\'s temporary WiFi (e.g. "Bose SoundTouch XXXXXX"), then try again.';
         _step = _Step.error;
       });
     }
@@ -91,8 +91,8 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       if (!mounted) return;
       setState(() {
         _scanLoading = false;
-        _scanError = 'Hindi ma-scan ang WiFi (${canStart.name}). Siguraduhing naka-on ang Location '
-            'ng phone mo (kailangan ito ng Android para makakita ng WiFi networks), o mag-type na lang manually.';
+        _scanError = 'Could not scan for WiFi (${canStart.name}). Make sure Location is turned on '
+            '(Android requires it to see nearby WiFi networks), or just type it in manually.';
       });
       return;
     }
@@ -106,7 +106,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       if (!mounted) return;
       setState(() {
         _scanLoading = false;
-        _scanError = 'Hindi makuha ang resulta ng scan (${canGet.name}). Mag-type na lang manually.';
+        _scanError = 'Could not get scan results (${canGet.name}). Just type it in manually.';
       });
       return;
     }
@@ -149,7 +149,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   Future<void> _submit() async {
     if (_ssidCtrl.text.trim().isEmpty) {
       setState(() {
-        _error = 'Ilagay muna ang pangalan ng WiFi (SSID).';
+        _error = 'Enter the WiFi name (SSID) first.';
         _step = _Step.error;
       });
       return;
@@ -227,7 +227,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Ipinapadala ang WiFi credentials sa speaker...'),
+              Text('Sending WiFi credentials to the speaker...'),
             ],
           ),
         );
@@ -244,21 +244,21 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'Ito ay para sa bagong o na-factory-reset na speaker na wala pang WiFi.\n\n'
-          'Hindi opisyal na dokumentado ito ni Bose - batay ito sa community research. '
-          'Puwedeng hindi ito gumana sa unang subok - subukan lang muli kung kinakailangan.',
+          'This is for a new or factory-reset speaker that has no WiFi yet.\n\n'
+          'This is not official Bose documentation - it\'s based on community research. '
+          'It may not work on the first try - just try again if needed.',
           style: TextStyle(fontSize: 13, color: Colors.grey),
         ),
         const SizedBox(height: 20),
-        const Text('Hakbang 1', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text('Step 1', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         const Text(
-          'Buksan ang WiFi Settings ng iyong phone, at ikonekta ito sa temporary WiFi '
-          'ng speaker (karaniwang pangalan: "Bose SoundTouch XXXXXX", walang password). '
-          'Kapag lumabas ang tanong na "No internet, stay connected?", piliin ang "Yes/Stay Connected".',
+          'Open your phone\'s WiFi Settings, and connect it to the speaker\'s temporary WiFi '
+          '(usually named "Bose SoundTouch XXXXXX", no password). '
+          'If asked "No internet, stay connected?", choose "Yes/Stay Connected".',
         ),
         const SizedBox(height: 24),
-        ElevatedButton(onPressed: _checkSetupMode, child: const Text('Nakakonekta na ako — Tuloy')),
+        ElevatedButton(onPressed: _checkSetupMode, child: const Text('I\'m Connected — Continue')),
       ],
     );
   }
@@ -269,12 +269,12 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Hakbang 2', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Step 2', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
           Text(
             showPicker
-                ? 'Piliin ang WiFi network ng bahay mo (kung saan permanenteng kokonekta ang speaker).'
-                : 'Ilagay ang password para sa "${_ssidCtrl.text}".',
+                ? 'Choose your home WiFi network (this is what the speaker will permanently connect to).'
+                : 'Enter the password for "${_ssidCtrl.text}".',
           ),
           const SizedBox(height: 16),
           if (showPicker) _networkPicker() else _passwordForm(),
@@ -290,10 +290,10 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Mga nakitang WiFi network', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            Text('Detected WiFi networks', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
             IconButton(
               icon: const Icon(Icons.refresh),
-              tooltip: 'I-refresh',
+              tooltip: 'Refresh',
               onPressed: _scanLoading ? null : _scanNetworks,
             ),
           ],
@@ -311,7 +311,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         else if (_networks.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text('Walang nakitang WiFi network.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+            child: Text('No WiFi networks found.', style: TextStyle(color: Colors.grey, fontSize: 13)),
           )
         else
           ConstrainedBox(
@@ -335,7 +335,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         Center(
           child: TextButton(
             onPressed: () => setState(() => _manualEntry = true),
-            child: const Text('Hindi mo nakita ang network mo? I-type na lang'),
+            child: const Text('Can\'t find your network? Type it in instead'),
           ),
         ),
       ],
@@ -376,7 +376,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         CheckboxListTile(
           value: _isOpenNetwork,
           onChanged: (v) => setState(() => _isOpenNetwork = v ?? false),
-          title: const Text('Open network (walang password)'),
+          title: const Text('Open network (no password)'),
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
         ),
@@ -389,10 +389,10 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
             _passwordCtrl.clear();
             _isOpenNetwork = false;
           }),
-          child: const Text('← Piliin ulit sa listahan'),
+          child: const Text('← Pick from the list again'),
         ),
         const SizedBox(height: 8),
-        ElevatedButton(onPressed: _submit, child: const Text('Ipadala sa Speaker')),
+        ElevatedButton(onPressed: _submit, child: const Text('Send to Speaker')),
       ],
     );
   }
@@ -404,19 +404,19 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       children: [
         const Icon(Icons.check_circle, color: Color(0xFF22C55E), size: 48),
         const SizedBox(height: 12),
-        Text('Naipadala na ang WiFi credentials (via $_resolvedSetupIp).'),
+        Text('WiFi credentials sent (via $_resolvedSetupIp).'),
         const SizedBox(height: 16),
-        const Text('Hakbang 3', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text('Step 3', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         _autoReconnectStatus(),
         const SizedBox(height: 8),
         const Text(
-          'Antayin ang mga 15-30 segundo habang sumasali ang speaker sa WiFi ng bahay. '
-          'Kung HINDI awtomatikong bumalik ang WiFi ng phone mo (tingnan sa itaas), '
-          'ibalik ito mano-mano sa WiFi Settings, tapos i-tap ang button sa ibaba para hanapin ang speaker.',
+          'Wait about 15-30 seconds while the speaker joins your home WiFi. '
+          'If your phone\'s WiFi does NOT switch back automatically (see above), '
+          'switch it back manually in WiFi Settings, then tap the button below to find the speaker.',
         ),
         const SizedBox(height: 20),
-        ElevatedButton(onPressed: _searchForSpeaker, child: const Text('Naka-reconnect na ako — Hanapin ang Speaker')),
+        ElevatedButton(onPressed: _searchForSpeaker, child: const Text('I\'m Reconnected — Find the Speaker')),
       ],
     );
   }
@@ -427,7 +427,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         children: [
           SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
           SizedBox(width: 8),
-          Text('Sinusubukang awtomatikong ibalik ang WiFi ng phone mo...', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          Text('Attempting to automatically switch your phone\'s WiFi back...', style: TextStyle(fontSize: 12, color: Colors.grey)),
         ],
       );
     }
@@ -438,7 +438,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
           SizedBox(width: 6),
           Expanded(
             child: Text(
-              'Sinubukan nang awtomatikong ibalik ang WiFi mo. Kumpirmahin lang sa itaas ng screen mo.',
+              'Attempted to automatically switch your WiFi back. Just confirm at the top of your screen.',
               style: TextStyle(fontSize: 12, color: Color(0xFF22C55E)),
             ),
           ),
@@ -451,7 +451,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         SizedBox(width: 6),
         Expanded(
           child: Text(
-            'Hindi na-automate sa phone na ito - kailangang mano-mano.',
+            'Not automated on this phone - manual switch needed.',
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ),
@@ -468,7 +468,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         const SizedBox(height: 12),
         Text(_error),
         const SizedBox(height: 20),
-        ElevatedButton(onPressed: () => setState(() => _step = _Step.instructions), child: const Text('Subukan Ulit')),
+        ElevatedButton(onPressed: () => setState(() => _step = _Step.instructions), child: const Text('Try Again')),
       ],
     );
   }

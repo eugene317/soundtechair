@@ -85,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             if (widget.isOnboarding) ...[
               const Text(
-                'Bago tayo magsimula, kumpirmahin ang address ng Online Server.',
+                'Before we start, confirm the Online Server\'s address.',
                 style: TextStyle(fontSize: 15),
               ),
               const SizedBox(height: 16),

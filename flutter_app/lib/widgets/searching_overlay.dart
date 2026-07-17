@@ -24,7 +24,7 @@ class SearchingOverlay extends StatelessWidget {
                   Text(controller.discoveryMessage, textAlign: TextAlign.center),
                   const SizedBox(height: 12),
                   const Text(
-                    'Bagong speaker na wala pang WiFi?',
+                    'Brand new speaker with no WiFi yet?',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
