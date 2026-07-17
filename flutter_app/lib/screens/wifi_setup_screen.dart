@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
+import '../services/wifi_control_service.dart';
 import '../services/wifi_provisioning_service.dart';
 import '../state/speaker_controller.dart';
 
@@ -49,6 +50,12 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   List<WiFiAccessPoint> _networks = [];
   String? _selectedSsid;
   bool _manualEntry = false;
+
+  /// null = attempting/not yet resolved, true = the disconnect() call
+  /// itself reported success (doesn't guarantee Android actually rejoined
+  /// the home network, just that this step ran without error), false =
+  /// failed/threw.
+  bool? _autoReconnectAttempted;
 
   @override
   void dispose() {
@@ -159,12 +166,33 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         _resolvedSetupIp = ip;
         _step = _Step.reconnectPrompt;
       });
+      unawaited(_attemptAutoReconnect());
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = '$e';
         _step = _Step.error;
       });
+    }
+  }
+
+  /// Best-effort: disconnects the phone from the speaker's temporary AP,
+  /// which (since the home network is normally already saved on the phone
+  /// from before) should let Android auto-reconnect to it on its own,
+  /// without the user needing to go into WiFi settings manually. This is a
+  /// real platform-specific risk (WifiManager.disconnect() behavior varies
+  /// across Android versions/OEMs, especially since Android 10+ restricts
+  /// direct WiFi manipulation) - so the manual instructions stay visible
+  /// regardless of what this reports, as a guaranteed fallback.
+  Future<void> _attemptAutoReconnect() async {
+    setState(() => _autoReconnectAttempted = null);
+    try {
+      final result = await WifiControlService.disconnect();
+      if (!mounted) return;
+      setState(() => _autoReconnectAttempted = result);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _autoReconnectAttempted = false);
     }
   }
 
@@ -380,13 +408,53 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         const SizedBox(height: 16),
         const Text('Hakbang 3', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
+        _autoReconnectStatus(),
+        const SizedBox(height: 8),
         const Text(
           'Antayin ang mga 15-30 segundo habang sumasali ang speaker sa WiFi ng bahay. '
-          'Pagkatapos, ibalik ang WiFi ng phone mo pabalik sa parehong home network (hindi na sa speaker), '
-          'tapos i-tap ang button sa ibaba para hanapin ang speaker.',
+          'Kung HINDI awtomatikong bumalik ang WiFi ng phone mo (tingnan sa itaas), '
+          'ibalik ito mano-mano sa WiFi Settings, tapos i-tap ang button sa ibaba para hanapin ang speaker.',
         ),
         const SizedBox(height: 20),
         ElevatedButton(onPressed: _searchForSpeaker, child: const Text('Naka-reconnect na ako — Hanapin ang Speaker')),
+      ],
+    );
+  }
+
+  Widget _autoReconnectStatus() {
+    if (_autoReconnectAttempted == null) {
+      return const Row(
+        children: [
+          SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 8),
+          Text('Sinusubukang awtomatikong ibalik ang WiFi ng phone mo...', style: TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+      );
+    }
+    if (_autoReconnectAttempted == true) {
+      return const Row(
+        children: [
+          Icon(Icons.check, size: 16, color: Color(0xFF22C55E)),
+          SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Sinubukan nang awtomatikong ibalik ang WiFi mo. Kumpirmahin lang sa itaas ng screen mo.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF22C55E)),
+            ),
+          ),
+        ],
+      );
+    }
+    return const Row(
+      children: [
+        Icon(Icons.info_outline, size: 16, color: Colors.grey),
+        SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            'Hindi na-automate sa phone na ito - kailangang mano-mano.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ),
       ],
     );
   }
