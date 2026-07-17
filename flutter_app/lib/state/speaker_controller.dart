@@ -86,6 +86,7 @@ class SpeakerController extends ChangeNotifier {
   bool _confirmedStarted = false;
   int _terminalStreak = 0;
   int _ticksSinceCommand = 0;
+  int? _lastElapsedSeconds;
 
   Timer? _pollTimer;
   Timer? _volumeDebounceTimer;
@@ -392,6 +393,13 @@ class SpeakerController extends ChangeNotifier {
 
   void toggleYoutubeAutoPlayNext() {
     youtubeAutoPlayNext = !youtubeAutoPlayNext;
+    // Turning it off must also stop an already-running ephemeral-playlist
+    // auto-advance - flipping this flag alone doesn't touch activePlaylist,
+    // so without this the poll-based state machine would keep advancing
+    // through search results even after the toggle looks "off" in the UI.
+    if (!youtubeAutoPlayNext && activePlaylist?.id == _ephemeralYoutubeResultsPlaylistId) {
+      _stopPlaylistMode();
+    }
     notifyListeners();
   }
 
@@ -609,6 +617,7 @@ class SpeakerController extends ChangeNotifier {
     _confirmedStarted = false;
     _terminalStreak = 0;
     _ticksSinceCommand = 0;
+    _lastElapsedSeconds = null;
     statusMessage = 'Playing: ${track.title}';
     notifyListeners();
     try {
@@ -736,6 +745,7 @@ class SpeakerController extends ChangeNotifier {
     _confirmedStarted = false;
     _terminalStreak = 0;
     _ticksSinceCommand = 0;
+    _lastElapsedSeconds = null;
     if (message != null) statusMessage = message;
     notifyListeners();
   }
@@ -756,6 +766,7 @@ class SpeakerController extends ChangeNotifier {
     if (commanded == null) return;
     final loc = nowPlaying?.location;
     final status = nowPlaying?.playStatus;
+    final elapsed = nowPlaying?.elapsedSeconds;
 
     if (loc != commanded) {
       // Something else changed the source without going through this
@@ -768,9 +779,10 @@ class SpeakerController extends ChangeNotifier {
 
     if (!_confirmedStarted) {
       _ticksSinceCommand++;
-      if (status == 'PLAY_STATE') {
+      if (status == 'PLAY_STATE' || (elapsed != null && elapsed > 0)) {
         _confirmedStarted = true;
         _terminalStreak = 0;
+        _lastElapsedSeconds = elapsed;
       } else if (_ticksSinceCommand >= 6) {
         // Stall safety net: never confirmed playing within ~30s - treat as
         // a broken/unplayable entry rather than silently stalling forever.
@@ -779,6 +791,20 @@ class SpeakerController extends ChangeNotifier {
       }
       return;
     }
+
+    // Elapsed time actually advancing since the last poll is the strongest
+    // available signal that audio is genuinely still flowing - trust it over
+    // playStatus entirely. The full set of transient non-PLAY_STATE values
+    // this device reports during normal playback (e.g. a brief re-buffer)
+    // isn't fully known, and playStatus-only detection was firing false
+    // "ended" positives during a song's own intro. Elapsed time can't lie
+    // about this the way a possibly-unrecognized status string can.
+    if (elapsed != null && _lastElapsedSeconds != null && elapsed > _lastElapsedSeconds!) {
+      _lastElapsedSeconds = elapsed;
+      _terminalStreak = 0;
+      return;
+    }
+    if (elapsed != null) _lastElapsedSeconds = elapsed;
 
     if (status == 'PLAY_STATE' || status == 'BUFFERING_STATE') {
       _terminalStreak = 0;

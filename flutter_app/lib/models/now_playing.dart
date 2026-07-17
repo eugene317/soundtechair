@@ -7,7 +7,22 @@ class NowPlaying {
   final String? stationName;
   final String? playStatus;
 
-  const NowPlaying({this.source, this.location, this.track, this.stationName, this.playStatus});
+  /// The <time total="..."> element's inner text - the ELAPSED seconds, not
+  /// the "total" attribute (which is confirmed unreliable/often 0 for
+  /// on-demand streams). Elapsed time actually advancing between polls is a
+  /// much more trustworthy "still genuinely playing" signal than playStatus
+  /// string matching alone, since the exact set of transient non-PLAY_STATE
+  /// values the speaker reports during startup/buffering isn't fully known.
+  final int? elapsedSeconds;
+
+  const NowPlaying({
+    this.source,
+    this.location,
+    this.track,
+    this.stationName,
+    this.playStatus,
+    this.elapsedSeconds,
+  });
 
   bool get isOn => source != null && source!.isNotEmpty && source != 'INVALID_SOURCE';
   bool get isPlaying => playStatus == 'PLAY_STATE';
@@ -30,6 +45,7 @@ class NowPlaying {
     final contentItem = doc.findAllElements('ContentItem').firstOrNull;
     final trackEl = doc.findAllElements('track').firstOrNull;
     final stationNameEl = doc.findAllElements('stationName').firstOrNull;
+    final timeEl = doc.findAllElements('time').firstOrNull;
     final root = doc.rootElement;
 
     return NowPlaying(
@@ -38,6 +54,7 @@ class NowPlaying {
       track: trackEl?.innerText,
       stationName: stationNameEl?.innerText,
       playStatus: root.getAttribute('playStatus') ?? _findPlayStatus(doc),
+      elapsedSeconds: int.tryParse(timeEl?.innerText ?? ''),
     );
   }
 
