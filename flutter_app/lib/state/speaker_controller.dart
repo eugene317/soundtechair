@@ -88,6 +88,19 @@ class SpeakerController extends ChangeNotifier {
   int _ticksSinceCommand = 0;
   int? _lastElapsedSeconds;
 
+  /// Optimistic bridge flag for the plain transport-row Pause/Play buttons
+  /// (outside playlist mode - see playlistPaused for that case). Set/cleared
+  /// SYNCHRONOUSLY the instant the button is tapped, before the awaited
+  /// XmlApiClient.sendKey round trip even starts, so the display ticker
+  /// freezes at the moment of the tap rather than only once nowPlaying's
+  /// stale PLAY_STATE finally gets overwritten by the next poll (which was
+  /// otherwise a window of over-ticking followed by a backward snap - the
+  /// same sawtooth this whole ticker-gating scheme exists to avoid). Only
+  /// needs to bridge until the next real poll lands - refreshStatus() clears
+  /// it unconditionally as soon as fresh data arrives, since nowPlaying?.isPlaying
+  /// alone is authoritative from that point on.
+  bool _manuallyPaused = false;
+
   /// A once-per-second, UI-only estimate of elapsed playback time,
   /// interpolated between the real 5-second now_playing polls so the
   /// on-screen timer/progress bar ticks smoothly instead of visibly jumping
@@ -158,12 +171,19 @@ class SpeakerController extends ChangeNotifier {
 
     _displayTickTimer?.cancel();
     _displayTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      // Deliberately NOT gated on nowPlaying?.isPlaying - the 5-second
-      // resync in refreshStatus() is what keeps this correct either way
-      // (it'll snap back down if this over-ticks during a genuine pause),
-      // and removing the extra condition removes one more thing that could
-      // silently keep this from ever incrementing.
-      if (_displayElapsedSeconds != null) {
+      // Freeze the smooth ticker whenever playback isn't actually advancing:
+      // `playlistPaused` and `_manuallyPaused` are both local flags set
+      // synchronously (before any awaited network call) the instant the user
+      // taps pause, in playlistPlayPause and sendKey respectively - so
+      // neither has to wait for the next poll to take effect.
+      // `nowPlaying?.isPlaying` (playStatus == 'PLAY_STATE') catches every
+      // other non-playing case, including stopped/buffering states.
+      // The 5-second resync in refreshStatus() still exists as a backstop
+      // for bounding drift on top of this - it just no longer has anything
+      // to correct during an ordinary pause, so the visible "count up then
+      // snap back down" sawtooth goes away.
+      final actuallyPlaying = !playlistPaused && !_manuallyPaused && nowPlaying?.isPlaying == true;
+      if (_displayElapsedSeconds != null && actuallyPlaying) {
         _displayElapsedSeconds = _displayElapsedSeconds! + 1;
         notifyListeners();
       }
@@ -254,6 +274,12 @@ class SpeakerController extends ChangeNotifier {
       final np = await XmlApiClient.getNowPlaying(ip);
       final vol = await XmlApiClient.getVolumeStatus(ip);
       nowPlaying = np;
+      // This poll's data is now authoritative for isPlaying - the optimistic
+      // bridge flag has done its job (covering the gap between the tap and
+      // this poll landing) and must not linger past it, or a later play
+      // started through a path other than sendKey('PLAY') (a preset,
+      // playlist track, custom URL, etc.) would stay frozen indefinitely.
+      _manuallyPaused = false;
       speakerReachable = true;
       if (np.isPlaying) _displayConfirmedPlaying = true;
       // Resync the smooth display ticker to the real polled value every
@@ -342,6 +368,16 @@ class SpeakerController extends ChangeNotifier {
     final ip = speaker?.ip;
     if (ip == null) return;
     if (activePlaylist != null) _stopPlaylistMode();
+    // Set synchronously, BEFORE the awaited network round trip below, so the
+    // display ticker freezes at the moment of the tap - see _manuallyPaused's
+    // doc comment for why this can't just wait on nowPlaying to catch up.
+    if (key == 'PAUSE') {
+      _manuallyPaused = true;
+      notifyListeners();
+    } else if (key == 'PLAY') {
+      _manuallyPaused = false;
+      notifyListeners();
+    }
     await _withStatus('', () async {
       await XmlApiClient.sendKey(ip, key);
       Timer(const Duration(milliseconds: 500), refreshStatus);
@@ -443,6 +479,11 @@ class SpeakerController extends ChangeNotifier {
     // showing a stale/nonsensical progress readout for a new track.
     _displayElapsedSeconds = null;
     _displayConfirmedPlaying = false;
+    // This is a new play command, so any leftover optimistic "manually
+    // paused" freeze from a previous transport-row Pause tap no longer
+    // applies - don't let it wrongly freeze the ticker for this new track
+    // until the next poll happens to clear it.
+    _manuallyPaused = false;
     // Default: most callers here (radio, custom URL) aren't seekable.
     // playYoutubeResult marks itself seekable right after calling this.
     _clearSeekable();
@@ -784,6 +825,9 @@ class SpeakerController extends ChangeNotifier {
     // track's elapsed value for up to 5s, until the next poll resyncs it.
     _displayElapsedSeconds = null;
     _displayConfirmedPlaying = false;
+    // See playCustomUrl's identical reset for why - a new track is starting,
+    // so a stale manual-pause freeze must not carry over onto it.
+    _manuallyPaused = false;
     if (track.source == TrackSource.youtube) {
       _trackSeekableYoutube(track.sourceId, track.durationMs != null ? track.durationMs! ~/ 1000 : null);
     } else {
@@ -874,12 +918,21 @@ class SpeakerController extends ChangeNotifier {
   Future<void> playlistPlayPause() async {
     final ip = speaker?.ip;
     if (ip == null || activePlaylist == null) return;
+    // Flip the flag and notify BEFORE the awaited call below (sendKey itself
+    // issues two sequential awaited HTTP round trips) - otherwise
+    // `playlistPaused` doesn't actually reflect the pause until both those
+    // round trips finish, during which the display ticker (gated on this
+    // flag) keeps counting up and then has to snap back down once
+    // refreshStatus's resync catches up - the exact sawtooth this flag
+    // exists to prevent, just moved to the tap edge instead of eliminated.
     if (playlistPaused) {
-      await XmlApiClient.sendKey(ip, 'PLAY');
       playlistPaused = false;
+      notifyListeners();
+      await XmlApiClient.sendKey(ip, 'PLAY');
     } else {
-      await XmlApiClient.sendKey(ip, 'PAUSE');
       playlistPaused = true;
+      notifyListeners();
+      await XmlApiClient.sendKey(ip, 'PAUSE');
     }
     notifyListeners();
     Timer(const Duration(milliseconds: 500), refreshStatus);
@@ -907,6 +960,7 @@ class SpeakerController extends ChangeNotifier {
     _seekOffsetSeconds = offsetSeconds;
     _displayElapsedSeconds = null;
     _displayConfirmedPlaying = false;
+    _manuallyPaused = false;
 
     if (activePlaylist != null) {
       _lastCommandedLocation = url;
