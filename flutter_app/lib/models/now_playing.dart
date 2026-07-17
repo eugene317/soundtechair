@@ -78,22 +78,31 @@ class NowPlaying {
     final trackEl = doc.findAllElements('track').firstOrNull;
     final stationNameEl = doc.findAllElements('stationName').firstOrNull;
     final timeEl = doc.findAllElements('time').firstOrNull;
-    final root = doc.rootElement;
 
     return NowPlaying(
       source: contentItem?.getAttribute('source'),
       location: contentItem?.getAttribute('location'),
       track: trackEl?.innerText,
       stationName: stationNameEl?.innerText,
-      playStatus: root.getAttribute('playStatus') ?? _findPlayStatus(doc),
+      playStatus: _findPlayStatus(doc),
       elapsedSeconds: int.tryParse(timeEl?.innerText ?? ''),
       totalSeconds: int.tryParse(timeEl?.getAttribute('total') ?? ''),
     );
   }
 
   static String? _findPlayStatus(XmlDocument doc) {
-    for (final el in doc.descendants.whereType<XmlElement>()) {
-      final attr = el.getAttribute('playStatus');
+    // Confirmed via a real device capture: playStatus is its own element
+    // with text content - <playStatus>PLAY_STATE</playStatus> - NOT an
+    // attribute anywhere in the document. The old attribute-only search
+    // below silently never matched anything, meaning NowPlaying.isPlaying
+    // was always false - which broke the display-timer's "confirmed
+    // playing" gate entirely (it never saw isPlaying==true to unlock).
+    final el = doc.findAllElements('playStatus').firstOrNull;
+    if (el != null && el.innerText.isNotEmpty) return el.innerText;
+    // Defensive fallback, kept in case some response variant does use an
+    // attribute instead.
+    for (final e in doc.descendants.whereType<XmlElement>()) {
+      final attr = e.getAttribute('playStatus');
       if (attr != null) return attr;
     }
     return null;
