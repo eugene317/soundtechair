@@ -107,6 +107,31 @@ class SpeakerController extends ChangeNotifier {
   /// data, just the wrong phase to be showing a track-position clock for.
   bool _displayConfirmedPlaying = false;
 
+  // --- Seek support (YouTube only - radio/custom URLs have no known
+  // duration/seekable position). A "seek" restarts the stream-proxy request
+  // with a new ?start= offset (there's no pre-existing indexed file to seek
+  // within - this is a live transcode) - so these fields let the display
+  // show the TRUE position within the original video (offset + whatever the
+  // restarted, trimmed stream itself reports), not the trimmed stream's own
+  // 0-based view of itself. ---
+  String? _seekableVideoId;
+  int? _seekableFullDurationSeconds;
+  int _seekOffsetSeconds = 0;
+
+  void _trackSeekableYoutube(String videoId, int? fullDurationSeconds) {
+    _seekableVideoId = videoId;
+    _seekableFullDurationSeconds = fullDurationSeconds;
+    _seekOffsetSeconds = 0;
+  }
+
+  void _clearSeekable() {
+    _seekableVideoId = null;
+    _seekableFullDurationSeconds = null;
+    _seekOffsetSeconds = 0;
+  }
+
+  bool get canSeek => _seekableVideoId != null && _seekableFullDurationSeconds != null;
+
   Timer? _pollTimer;
   Timer? _displayTickTimer;
   Timer? _volumeDebounceTimer;
@@ -253,21 +278,34 @@ class SpeakerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True position within the ORIGINAL track, accounting for any seek -
+  /// after seeking, the speaker's own now_playing reports position within
+  /// the TRIMMED/restarted stream (starting back at 0), not the original
+  /// video's timeline, so this adds back the seek offset. Unaffected
+  /// (offset stays 0) for anything that's never been seeked.
+  int? get displayTrueElapsedSeconds {
+    final elapsed = _displayElapsedSeconds;
+    if (elapsed == null) return null;
+    return _seekOffsetSeconds + elapsed;
+  }
+
+  int? get displayTrueTotalSeconds => _seekableFullDurationSeconds ?? nowPlaying?.totalSeconds;
+
   /// UI-facing "2:59 / 3:00" (or just "2:59" if duration's unknown) built
   /// from the smooth once-per-second ticker, not the raw 5-second-stale
   /// NowPlaying.elapsedSeconds - use this (not NowPlaying.progressText) for
   /// anything shown on screen.
   String? get displayProgressText {
-    final elapsed = _displayElapsedSeconds;
+    final elapsed = displayTrueElapsedSeconds;
     if (elapsed == null) return null;
-    final total = nowPlaying?.totalSeconds;
+    final total = displayTrueTotalSeconds;
     if (total == null || total <= 0) return NowPlaying.formatSeconds(elapsed);
     return '${NowPlaying.formatSeconds(elapsed)} / ${NowPlaying.formatSeconds(total)}';
   }
 
   double? get displayProgressFraction {
-    final elapsed = _displayElapsedSeconds;
-    final total = nowPlaying?.totalSeconds;
+    final elapsed = displayTrueElapsedSeconds;
+    final total = displayTrueTotalSeconds;
     if (elapsed == null || total == null || total <= 0) return null;
     return (elapsed / total).clamp(0.0, 1.0);
   }
@@ -405,6 +443,9 @@ class SpeakerController extends ChangeNotifier {
     // showing a stale/nonsensical progress readout for a new track.
     _displayElapsedSeconds = null;
     _displayConfirmedPlaying = false;
+    // Default: most callers here (radio, custom URL) aren't seekable.
+    // playYoutubeResult marks itself seekable right after calling this.
+    _clearSeekable();
     await _withStatus('Loading $label...', () async {
       await SoapClient.play(ip, url, title: title, duration: duration);
       Timer(const Duration(milliseconds: 1500), refreshStatus);
@@ -454,6 +495,7 @@ class SpeakerController extends ChangeNotifier {
       title: r.title,
       duration: r.durationSeconds != null ? Duration(seconds: r.durationSeconds!) : null,
     );
+    _trackSeekableYoutube(r.id, r.durationSeconds);
   }
 
   /// Whether tapping a YouTube Music result should auto-advance through the
@@ -742,6 +784,11 @@ class SpeakerController extends ChangeNotifier {
     // track's elapsed value for up to 5s, until the next poll resyncs it.
     _displayElapsedSeconds = null;
     _displayConfirmedPlaying = false;
+    if (track.source == TrackSource.youtube) {
+      _trackSeekableYoutube(track.sourceId, track.durationMs != null ? track.durationMs! ~/ 1000 : null);
+    } else {
+      _clearSeekable();
+    }
     statusMessage = 'Playing: ${track.title}';
     notifyListeners();
     try {
@@ -836,6 +883,48 @@ class SpeakerController extends ChangeNotifier {
     }
     notifyListeners();
     Timer(const Duration(milliseconds: 500), refreshStatus);
+  }
+
+  /// "Seek" to [position] within the currently-playing YouTube track. Since
+  /// the audio is a live transcode (no pre-existing indexed file to seek
+  /// within), this works by restarting the stream-proxy request with a new
+  /// ?start= offset - a brief reload, not an instant/seamless scrub. Does
+  /// NOT cancel playlist mode (mirrors playlistPlayPause's reasoning): this
+  /// is the user continuing to control the same track, not switching to
+  /// something else, so activePlaylist/_activeTrackId stay untouched - only
+  /// the tracking fields the auto-advance state machine reads get updated to
+  /// match the new stream.
+  Future<void> seekTo(Duration position) async {
+    final ip = speaker?.ip;
+    final videoId = _seekableVideoId;
+    final fullDuration = _seekableFullDurationSeconds;
+    if (ip == null || videoId == null || fullDuration == null || !settings.isConfigured) return;
+
+    final offsetSeconds = position.inSeconds.clamp(0, fullDuration);
+    final url = StreamUrlBuilder.youtube(settings.streamProxyUrl, videoId, startSeconds: offsetSeconds);
+    final remainingSeconds = fullDuration - offsetSeconds;
+
+    _seekOffsetSeconds = offsetSeconds;
+    _displayElapsedSeconds = null;
+    _displayConfirmedPlaying = false;
+
+    if (activePlaylist != null) {
+      _lastCommandedLocation = url;
+      _confirmedStarted = false;
+      _terminalStreak = 0;
+      _ticksSinceCommand = 0;
+      _lastElapsedSeconds = null;
+    }
+
+    await _withStatus('Seeking...', () async {
+      await SoapClient.play(
+        ip,
+        url,
+        title: nowPlaying?.track,
+        duration: remainingSeconds > 0 ? Duration(seconds: remainingSeconds) : null,
+      );
+      Timer(const Duration(milliseconds: 1500), refreshStatus);
+    });
   }
 
   void setPlaylistOrder(PlaylistOrder order) {

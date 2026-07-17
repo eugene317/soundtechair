@@ -8,6 +8,7 @@ import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/custom_station_tile.dart';
 import '../widgets/panel_control.dart';
 import '../widgets/searching_overlay.dart';
+import '../widgets/seek_bar.dart';
 import '../widgets/station_list.dart';
 import '../widgets/transport_row.dart';
 import '../widgets/volume_slider.dart';
@@ -222,19 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           if (controller.displayProgressText != null) ...[
             const SizedBox(height: 8),
-            if (controller.displayProgressFraction != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: controller.displayProgressFraction,
-                  minHeight: 4,
-                  backgroundColor: const Color(0xFF2A2A2A),
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFF22C55E)),
-                ),
-              ),
-            const SizedBox(height: 4),
-            Text(controller.displayProgressText!,
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            const SeekBar(),
           ],
         ],
       ),

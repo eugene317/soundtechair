@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/playlist.dart';
 import '../state/speaker_controller.dart';
+import '../widgets/seek_bar.dart';
 
 class PlaylistDetailScreen extends StatelessWidget {
   final String playlistId;
@@ -145,19 +146,7 @@ class PlaylistDetailScreen extends StatelessWidget {
           ),
           if (controller.displayProgressText != null) ...[
             const SizedBox(height: 8),
-            if (controller.displayProgressFraction != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: controller.displayProgressFraction,
-                  minHeight: 4,
-                  backgroundColor: const Color(0xFF2A2A2A),
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFF22C55E)),
-                ),
-              ),
-            const SizedBox(height: 4),
-            Text(controller.displayProgressText!,
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            const SeekBar(),
           ],
           const SizedBox(height: 8),
           Row(

@@ -56,7 +56,7 @@ $handlerScript = {
     }
 
     function Send-TranscodedStream {
-        param($Response, [string]$SourceUrl, [string]$HttpMethod)
+        param($Response, [string]$SourceUrl, [string]$HttpMethod, [int]$StartSeconds = 0)
         if ($null -eq $SourceUrl -or $SourceUrl -eq "") {
             $Response.StatusCode = 404
             return
@@ -67,7 +67,15 @@ $handlerScript = {
         if ($HttpMethod -ne "HEAD") {
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $ffmpegPath
-            $psi.Arguments = "-loglevel error -i `"$SourceUrl`" -vn -acodec libmp3lame -b:a 192k -f mp3 pipe:1"
+            # -ss BEFORE -i does fast input seeking (ffmpeg jumps directly to
+            # that offset in the source instead of decoding/discarding
+            # everything before it) - this is what backs the app's "seek"
+            # feature, which works by restarting the stream at a new offset
+            # rather than seeking within an already-open connection (there's
+            # no pre-existing indexed file to seek within - this is a live,
+            # on-the-fly transcode).
+            $seekArg = if ($StartSeconds -gt 0) { "-ss $StartSeconds " } else { "" }
+            $psi.Arguments = "-loglevel error $seekArg-i `"$SourceUrl`" -vn -acodec libmp3lame -b:a 192k -f mp3 pipe:1"
             $psi.RedirectStandardOutput = $true
             $psi.UseShellExecute = $false
             $psi.CreateNoWindow = $true
@@ -86,8 +94,11 @@ $handlerScript = {
         Write-Output "[$($request.HttpMethod)] $path"
         if ($path -like "/stream/*") {
             $videoId = $path.Substring("/stream/".Length) -replace "\.\w+$", ""
+            $startSeconds = 0
+            $startParam = $request.QueryString["start"]
+            if ($startParam) { [void][int]::TryParse($startParam, [ref]$startSeconds) }
             $realUrl = Resolve-YouTubeUrl $videoId
-            Send-TranscodedStream $response $realUrl $request.HttpMethod
+            Send-TranscodedStream $response $realUrl $request.HttpMethod $startSeconds
         }
         elseif ($path -like "/radio/*") {
             $stationId = $path.Substring("/radio/".Length) -replace "\.\w+$", ""
