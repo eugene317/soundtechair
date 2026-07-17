@@ -13,6 +13,8 @@ import '../widgets/volume_slider.dart';
 import 'settings_screen.dart';
 import 'wifi_setup_screen.dart';
 
+enum _HomePage { player, tuneIn, youtube }
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _radioQueryCtrl = TextEditingController(text: 'Top 40');
   final _ytQueryCtrl = TextEditingController(text: 'Top Hits 2026');
+  _HomePage _page = _HomePage.player;
 
   @override
   void initState() {
@@ -48,35 +51,15 @@ class _HomeScreenState extends State<HomeScreen> {
           return const SearchingOverlay();
         }
         return Scaffold(
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF161616),
+            title: Text(_pageTitle),
+          ),
+          drawer: _buildDrawer(context),
           body: SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Column(
-                children: [
-                  _topBar(context),
-                  const SizedBox(height: 12),
-                  _deviceCard(controller),
-                  const SizedBox(height: 12),
-                  const PanelControl(),
-                  const SizedBox(height: 12),
-                  const TransportRow(),
-                  const SizedBox(height: 8),
-                  const VolumeSlider(),
-                  if (controller.statusMessage.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(controller.statusMessage, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  ] else ...[
-                    const SizedBox(height: 4),
-                    const Text(Strings.presetHint, style: TextStyle(fontSize: 11, color: Colors.grey)),
-                  ],
-                  const SizedBox(height: 20),
-                  _radioSection(controller),
-                  const SizedBox(height: 20),
-                  _youtubeSection(controller),
-                  const SizedBox(height: 12),
-                  const CustomStationTile(),
-                ],
-              ),
+              child: _pageContent(controller),
             ),
           ),
         );
@@ -84,32 +67,101 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _topBar(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(20)),
-      child: Row(
-        children: [
-          const Text('🔊', style: TextStyle(fontSize: 20)),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(Strings.appTitle, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          ),
-          IconButton(
-            icon: const Icon(Icons.wifi_tethering),
-            tooltip: 'Setup new speaker',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WifiSetupScreen()),
+  String get _pageTitle {
+    switch (_page) {
+      case _HomePage.player:
+        return Strings.appTitle;
+      case _HomePage.tuneIn:
+        return 'Internet Radio (TuneIn)';
+      case _HomePage.youtube:
+        return 'YouTube Music';
+    }
+  }
+
+  Widget _pageContent(SpeakerController controller) {
+    switch (_page) {
+      case _HomePage.player:
+        return _playerPage(controller);
+      case _HomePage.tuneIn:
+        return _radioSection(controller);
+      case _HomePage.youtube:
+        return _youtubeSection(controller);
+    }
+  }
+
+  Widget _buildDrawer(BuildContext context) {
+    return Drawer(
+      backgroundColor: const Color(0xFF161616),
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('🔊 ${Strings.appTitle}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            const Divider(color: Color(0xFF2A2A2A), height: 1),
+            _drawerItem(context, Icons.speaker, 'Player', _HomePage.player),
+            _drawerItem(context, Icons.radio, 'Internet Radio (TuneIn)', _HomePage.tuneIn),
+            _drawerItem(context, Icons.smart_display, 'YouTube Music', _HomePage.youtube),
+            const Divider(color: Color(0xFF2A2A2A)),
+            ListTile(
+              leading: const Icon(Icons.wifi_tethering),
+              title: const Text('Setup New Speaker'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WifiSetupScreen()));
+              },
             ),
-          ),
-        ],
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              },
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _drawerItem(BuildContext context, IconData icon, String label, _HomePage page) {
+    final selected = _page == page;
+    final color = selected ? const Color(0xFF22C55E) : Colors.white;
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(label, style: TextStyle(color: color)),
+      selected: selected,
+      selectedTileColor: const Color(0xFF16311F),
+      onTap: () {
+        setState(() => _page = page);
+        Navigator.of(context).pop();
+      },
+    );
+  }
+
+  Widget _playerPage(SpeakerController controller) {
+    return Column(
+      children: [
+        _deviceCard(controller),
+        const SizedBox(height: 12),
+        const PanelControl(),
+        const SizedBox(height: 12),
+        const TransportRow(),
+        const SizedBox(height: 8),
+        const VolumeSlider(),
+        if (controller.statusMessage.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(controller.statusMessage, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ] else ...[
+          const SizedBox(height: 4),
+          const Text(Strings.presetHint, style: TextStyle(fontSize: 11, color: Colors.grey)),
+        ],
+        const SizedBox(height: 12),
+        const CustomStationTile(),
+      ],
     );
   }
 
@@ -165,7 +217,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _radioSection(SpeakerController controller) {
     return _searchSection(
-      title: 'Internet Radio (TuneIn)',
       queryCtrl: _radioQueryCtrl,
       onSearch: () => controller.searchRadio(_radioQueryCtrl.text.trim()),
       loading: controller.radioLoading,
@@ -184,7 +235,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _youtubeSection(SpeakerController controller) {
     return _searchSection(
-      title: 'YouTube Music',
       queryCtrl: _ytQueryCtrl,
       onSearch: () => controller.searchYoutube(_ytQueryCtrl.text.trim()),
       loading: controller.youtubeLoading,
@@ -201,7 +251,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _searchSection({
-    required String title,
     required TextEditingController queryCtrl,
     required VoidCallback onSearch,
     required bool loading,
@@ -212,8 +261,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
