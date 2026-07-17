@@ -25,8 +25,8 @@ class SettingsService {
   // stream proxy URL MUST stay http:// - using the tunnel's http:// address
   // (rather than the LAN-only 192.168.1.8:5001) means this also works for a
   // speaker in a different house than this server, not just on the same LAN.
-  static const defaultSearchServerUrl = 'http://frontpage-backing-members-breathing.trycloudflare.com';
-  static const defaultStreamProxyUrl = 'http://chester-clara-finances-sleeps.trycloudflare.com';
+  static const defaultSearchServerUrl = 'http://doctors-ceiling-date-commercial.trycloudflare.com';
+  static const defaultStreamProxyUrl = 'http://flame-tours-suppliers-ide.trycloudflare.com';
 
   Future<AppSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
