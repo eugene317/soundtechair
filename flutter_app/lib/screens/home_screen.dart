@@ -271,6 +271,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onSearch: () => controller.searchYoutube(_ytQueryCtrl.text.trim()),
           loading: controller.youtubeLoading,
           error: controller.youtubeError,
+          gridColumns: 2,
+          gridStyle: StationGridStyle.card,
           items: controller.youtubeResults.asMap().entries.map((entry) {
             final index = entry.key;
             final r = entry.value;
@@ -300,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String? error,
     required List<StationListItem> items,
     int? gridColumns,
+    StationGridStyle gridStyle = StationGridStyle.compact,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,7 +321,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        StationList(loading: loading, error: error, items: items, gridColumns: gridColumns),
+        StationList(
+          loading: loading,
+          error: error,
+          items: items,
+          gridColumns: gridColumns,
+          gridStyle: gridStyle,
+        ),
       ],
     );
   }

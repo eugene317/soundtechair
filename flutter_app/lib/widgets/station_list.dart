@@ -23,6 +23,12 @@ class StationListItem {
   });
 }
 
+/// Grid tile visual style - `compact` is the small icon+title horizontal
+/// rectangle (TuneIn's dense station list); `card` is a bigger album-art-style
+/// tile (image on top, title below) for content where a larger thumbnail
+/// reads better, e.g. YouTube Music.
+enum StationGridStyle { compact, card }
+
 /// Shared rendering for both the TuneIn and YouTube search sections - with
 /// loading/empty/error micro-states matching index.html's
 /// station-container/.station-item. Renders as a scrollable vertical list by
@@ -33,6 +39,7 @@ class StationList extends StatelessWidget {
   final String? error;
   final List<StationListItem> items;
   final int? gridColumns;
+  final StationGridStyle gridStyle;
 
   const StationList({
     super.key,
@@ -40,6 +47,7 @@ class StationList extends StatelessWidget {
     required this.error,
     required this.items,
     this.gridColumns,
+    this.gridStyle = StationGridStyle.compact,
   });
 
   @override
@@ -77,17 +85,19 @@ class StationList extends StatelessWidget {
     }
     final columns = gridColumns;
     if (columns != null) {
+      final isCard = gridStyle == StationGridStyle.card;
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: items.length,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
-          crossAxisSpacing: 6,
-          mainAxisSpacing: 6,
-          childAspectRatio: 1.7,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: isCard ? 0.78 : 1.7,
         ),
-        itemBuilder: (context, i) => _StationGridTile(item: items[i]),
+        itemBuilder: (context, i) =>
+            isCard ? _StationCardTile(item: items[i]) : _StationGridTile(item: items[i]),
       );
     }
     return ListView.builder(
@@ -165,6 +175,74 @@ class _StationGridTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   maxLines: 2,
                   style: const TextStyle(fontSize: 10.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StationCardTile extends StatelessWidget {
+  final StationListItem item;
+
+  const _StationCardTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF1F1F1F),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: item.onTap,
+        child: Container(
+          decoration: item.isPlaying
+              ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF22C55E), width: 2),
+                )
+              : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                  child: item.imageUrl != null
+                      ? Image.network(
+                          item.imageUrl!,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          errorBuilder: (_, _, _) => Container(
+                            color: const Color(0xFF2A2A2A),
+                            child: const Center(child: Text('🎵', style: TextStyle(fontSize: 28))),
+                          ),
+                        )
+                      : Container(
+                          color: const Color(0xFF2A2A2A),
+                          child: const Center(child: Text('🎵', style: TextStyle(fontSize: 28))),
+                        ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 0, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    if (item.trailingAction != null)
+                      Transform.scale(scale: 0.8, child: item.trailingAction),
+                  ],
                 ),
               ),
             ],
