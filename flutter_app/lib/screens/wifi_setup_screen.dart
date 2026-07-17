@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wifi_scan/wifi_scan.dart';
 
 import '../services/wifi_provisioning_service.dart';
 import '../state/speaker_controller.dart';
@@ -16,6 +19,14 @@ enum _Step { instructions, checking, form, submitting, reconnectPrompt, error }
 /// code, a real platform-specific risk of its own) - instead the two
 /// WiFi-switching moments are manual steps the user does themselves in their
 /// phone's own WiFi settings, which is simpler and far more reliable for a v1.
+///
+/// Step 2 (picking the home network) uses the PHONE's own WiFi scan (via the
+/// wifi_scan package) rather than the speaker's own performWirelessSiteSurvey
+/// action - the speaker's scan-RESPONSE format was never actually documented
+/// anywhere during research (only the request shape was confirmed), while
+/// Android's own WiFi scan API is standard and well-documented. Since the
+/// phone is physically right next to the speaker during setup, it should see
+/// the same home network the speaker itself would.
 class WifiSetupScreen extends StatefulWidget {
   const WifiSetupScreen({super.key});
 
@@ -33,6 +44,12 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   bool _isOpenNetwork = false;
   bool _obscurePassword = true;
 
+  bool _scanLoading = false;
+  String? _scanError;
+  List<WiFiAccessPoint> _networks = [];
+  String? _selectedSsid;
+  bool _manualEntry = false;
+
   @override
   void dispose() {
     _ssidCtrl.dispose();
@@ -46,6 +63,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     if (!mounted) return;
     if (inSetupMode) {
       setState(() => _step = _Step.form);
+      unawaited(_scanNetworks());
     } else {
       setState(() {
         _error = 'Hindi maabot ang speaker sa setup mode. Siguraduhing naka-connect ang phone mo sa '
@@ -53,6 +71,72 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         _step = _Step.error;
       });
     }
+  }
+
+  Future<void> _scanNetworks() async {
+    setState(() {
+      _scanLoading = true;
+      _scanError = null;
+    });
+
+    final canStart = await WiFiScan.instance.canStartScan(askPermissions: true);
+    if (canStart != CanStartScan.yes) {
+      if (!mounted) return;
+      setState(() {
+        _scanLoading = false;
+        _scanError = 'Hindi ma-scan ang WiFi (${canStart.name}). Siguraduhing naka-on ang Location '
+            'ng phone mo (kailangan ito ng Android para makakita ng WiFi networks), o mag-type na lang manually.';
+      });
+      return;
+    }
+
+    await WiFiScan.instance.startScan();
+    // Give the scan a moment to actually populate results.
+    await Future.delayed(const Duration(seconds: 2));
+
+    final canGet = await WiFiScan.instance.canGetScannedResults(askPermissions: true);
+    if (canGet != CanGetScannedResults.yes) {
+      if (!mounted) return;
+      setState(() {
+        _scanLoading = false;
+        _scanError = 'Hindi makuha ang resulta ng scan (${canGet.name}). Mag-type na lang manually.';
+      });
+      return;
+    }
+
+    final results = await WiFiScan.instance.getScannedResults();
+    // Dedupe by SSID (multiple access points/mesh nodes can share one name),
+    // keeping the strongest signal; drop hidden (blank-SSID) networks - no
+    // name to show/select in a picker.
+    final bySsid = <String, WiFiAccessPoint>{};
+    for (final ap in results) {
+      if (ap.ssid.isEmpty) continue;
+      final existing = bySsid[ap.ssid];
+      if (existing == null || ap.level > existing.level) {
+        bySsid[ap.ssid] = ap;
+      }
+    }
+    final networks = bySsid.values.toList()..sort((a, b) => b.level.compareTo(a.level));
+
+    if (!mounted) return;
+    setState(() {
+      _networks = networks;
+      _scanLoading = false;
+    });
+  }
+
+  bool _looksOpen(WiFiAccessPoint ap) {
+    final caps = ap.capabilities.toUpperCase();
+    return !(caps.contains('WEP') || caps.contains('WPA') || caps.contains('PSK') || caps.contains('EAP'));
+  }
+
+  void _selectNetwork(WiFiAccessPoint ap) {
+    setState(() {
+      _selectedSsid = ap.ssid;
+      _ssidCtrl.text = ap.ssid;
+      _isOpenNetwork = _looksOpen(ap);
+      _passwordCtrl.clear();
+    });
   }
 
   Future<void> _submit() async {
@@ -152,43 +236,136 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   }
 
   Widget _formStep() {
+    final showPicker = !_manualEntry && _selectedSsid == null;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Hakbang 2', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
-          const Text('Ilagay ang detalye ng WiFi network ng bahay (kung saan permanenteng kokonekta ang speaker).'),
+          Text(
+            showPicker
+                ? 'Piliin ang WiFi network ng bahay mo (kung saan permanenteng kokonekta ang speaker).'
+                : 'Ilagay ang password para sa "${_ssidCtrl.text}".',
+          ),
           const SizedBox(height: 16),
+          if (showPicker) _networkPicker() else _passwordForm(),
+        ],
+      ),
+    );
+  }
+
+  Widget _networkPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Mga nakitang WiFi network', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'I-refresh',
+              onPressed: _scanLoading ? null : _scanNetworks,
+            ),
+          ],
+        ),
+        if (_scanLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_scanError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(_scanError!, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+          )
+        else if (_networks.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('Walang nakitang WiFi network.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+          )
+        else
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 320),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _networks.length,
+              itemBuilder: (context, i) {
+                final ap = _networks[i];
+                final open = _looksOpen(ap);
+                return ListTile(
+                  leading: Icon(_signalIcon(ap.level)),
+                  title: Text(ap.ssid),
+                  trailing: open ? null : const Icon(Icons.lock, size: 16, color: Colors.grey),
+                  onTap: () => _selectNetwork(ap),
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 12),
+        Center(
+          child: TextButton(
+            onPressed: () => setState(() => _manualEntry = true),
+            child: const Text('Hindi mo nakita ang network mo? I-type na lang'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _signalIcon(int levelDbm) {
+    if (levelDbm >= -60) return Icons.wifi;
+    if (levelDbm >= -75) return Icons.wifi_2_bar;
+    return Icons.wifi_1_bar;
+  }
+
+  Widget _passwordForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_manualEntry && _selectedSsid == null) ...[
           TextField(
             controller: _ssidCtrl,
             decoration: const InputDecoration(labelText: 'WiFi Name (SSID)', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _passwordCtrl,
-            obscureText: _obscurePassword,
-            enabled: !_isOpenNetwork,
-            decoration: InputDecoration(
-              labelText: 'WiFi Password',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-              ),
+        ],
+        TextField(
+          controller: _passwordCtrl,
+          obscureText: _obscurePassword,
+          enabled: !_isOpenNetwork,
+          autofocus: _selectedSsid != null,
+          decoration: InputDecoration(
+            labelText: 'WiFi Password',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
-          CheckboxListTile(
-            value: _isOpenNetwork,
-            onChanged: (v) => setState(() => _isOpenNetwork = v ?? false),
-            title: const Text('Open network (walang password)'),
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(onPressed: _submit, child: const Text('Ipadala sa Speaker')),
-        ],
-      ),
+        ),
+        CheckboxListTile(
+          value: _isOpenNetwork,
+          onChanged: (v) => setState(() => _isOpenNetwork = v ?? false),
+          title: const Text('Open network (walang password)'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => setState(() {
+            _selectedSsid = null;
+            _manualEntry = false;
+            _ssidCtrl.clear();
+            _passwordCtrl.clear();
+            _isOpenNetwork = false;
+          }),
+          child: const Text('← Piliin ulit sa listahan'),
+        ),
+        const SizedBox(height: 8),
+        ElevatedButton(onPressed: _submit, child: const Text('Ipadala sa Speaker')),
+      ],
     );
   }
 
