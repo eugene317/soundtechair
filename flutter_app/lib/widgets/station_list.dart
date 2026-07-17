@@ -78,7 +78,7 @@ class StationList extends StatelessWidget {
           crossAxisCount: columns,
           crossAxisSpacing: 6,
           mainAxisSpacing: 6,
-          childAspectRatio: 0.85,
+          childAspectRatio: 1.7,
         ),
         itemBuilder: (context, i) => _StationGridTile(item: items[i]),
       );
@@ -140,25 +140,23 @@ class _StationGridTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         onTap: item.onTap,
         child: Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           decoration: item.isPlaying
               ? BoxDecoration(
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFF22C55E), width: 1.5),
                 )
               : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
             children: [
-              _StationIcon(imageUrl: item.imageUrl, size: 44),
-              const SizedBox(height: 6),
+              _StationIcon(imageUrl: item.imageUrl, size: 26),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   item.title,
-                  textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
                   maxLines: 2,
-                  style: const TextStyle(fontSize: 11),
+                  style: const TextStyle(fontSize: 10.5),
                 ),
               ),
             ],
