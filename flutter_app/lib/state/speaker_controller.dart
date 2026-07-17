@@ -97,6 +97,16 @@ class SpeakerController extends ChangeNotifier {
   /// NowPlaying.elapsedSeconds, never this - this field is display-only.
   int? _displayElapsedSeconds;
 
+  /// True once a poll has actually observed PLAY_STATE for the current
+  /// track - false during the initial buffering/loading window right after
+  /// a track is commanded. The speaker itself appears to report a rising
+  /// elapsed count WHILE STILL BUFFERING (observed: counts up during load,
+  /// then resets back down once real audio playback actually begins) - so
+  /// showing/ticking the display before this is confirmed produces a
+  /// confusing "counts up then jumps back to 1" readout that isn't wrong
+  /// data, just the wrong phase to be showing a track-position clock for.
+  bool _displayConfirmedPlaying = false;
+
   Timer? _pollTimer;
   Timer? _displayTickTimer;
   Timer? _volumeDebounceTimer;
@@ -220,11 +230,16 @@ class SpeakerController extends ChangeNotifier {
       final vol = await XmlApiClient.getVolumeStatus(ip);
       nowPlaying = np;
       speakerReachable = true;
+      if (np.isPlaying) _displayConfirmedPlaying = true;
       // Resync the smooth display ticker to the real polled value every
       // time - this is what keeps interpolation drift bounded to at most
       // one poll interval, and immediately reflects a track change (new
       // elapsed=0) rather than waiting for the local ticker to catch up.
-      _displayElapsedSeconds = np.elapsedSeconds;
+      // Gated on _displayConfirmedPlaying so a rising elapsed count reported
+      // by the speaker WHILE STILL BUFFERING never reaches the display.
+      if (_displayConfirmedPlaying) {
+        _displayElapsedSeconds = np.elapsedSeconds;
+      }
       if (!isDraggingVolume) {
         volumeStatus = vol;
         displayVolume = vol.actual;
@@ -389,6 +404,7 @@ class SpeakerController extends ChangeNotifier {
     // track's elapsed value for up to 5s, until the next poll resyncs it -
     // showing a stale/nonsensical progress readout for a new track.
     _displayElapsedSeconds = null;
+    _displayConfirmedPlaying = false;
     await _withStatus('Loading $label...', () async {
       await SoapClient.play(ip, url, title: title, duration: duration);
       Timer(const Duration(milliseconds: 1500), refreshStatus);
@@ -725,6 +741,7 @@ class SpeakerController extends ChangeNotifier {
     // Otherwise the display ticker keeps counting up from the PREVIOUS
     // track's elapsed value for up to 5s, until the next poll resyncs it.
     _displayElapsedSeconds = null;
+    _displayConfirmedPlaying = false;
     statusMessage = 'Playing: ${track.title}';
     notifyListeners();
     try {
