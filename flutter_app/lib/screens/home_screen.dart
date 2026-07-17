@@ -4,12 +4,14 @@ import 'package:provider/provider.dart';
 import '../services/discovery.dart';
 import '../state/speaker_controller.dart';
 import '../utils/strings.dart';
+import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/custom_station_tile.dart';
 import '../widgets/panel_control.dart';
 import '../widgets/searching_overlay.dart';
 import '../widgets/station_list.dart';
 import '../widgets/transport_row.dart';
 import '../widgets/volume_slider.dart';
+import 'playlists_screen.dart';
 import 'settings_screen.dart';
 import 'wifi_setup_screen.dart';
 
@@ -104,6 +106,14 @@ class _HomeScreenState extends State<HomeScreen> {
             _drawerItem(context, Icons.speaker, 'Player', _HomePage.player),
             _drawerItem(context, Icons.radio, 'Internet Radio (TuneIn)', _HomePage.tuneIn),
             _drawerItem(context, Icons.smart_display, 'YouTube Music', _HomePage.youtube),
+            ListTile(
+              leading: const Icon(Icons.queue_music),
+              title: const Text('Playlists'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlaylistsScreen()));
+              },
+            ),
             const Divider(color: Color(0xFF2A2A2A)),
             ListTile(
               leading: const Icon(Icons.wifi_tethering),
@@ -234,19 +244,52 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _youtubeSection(SpeakerController controller) {
-    return _searchSection(
-      queryCtrl: _ytQueryCtrl,
-      onSearch: () => controller.searchYoutube(_ytQueryCtrl.text.trim()),
-      loading: controller.youtubeLoading,
-      error: controller.youtubeError,
-      items: controller.youtubeResults
-          .map((r) => StationListItem(
-                title: r.title,
-                imageUrl: r.thumbnailUrl,
-                isPlaying: controller.isYoutubePlaying(r),
-                onTap: () => controller.playYoutubeResult(r),
-              ))
-          .toList(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.play_circle,
+              size: 18,
+              color: controller.youtubeAutoPlayNext ? const Color(0xFF22C55E) : Colors.grey,
+            ),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text('Auto-play next', style: TextStyle(fontSize: 12)),
+            ),
+            Switch(
+              value: controller.youtubeAutoPlayNext,
+              activeThumbColor: const Color(0xFF22C55E),
+              onChanged: (_) => controller.toggleYoutubeAutoPlayNext(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        _searchSection(
+          queryCtrl: _ytQueryCtrl,
+          onSearch: () => controller.searchYoutube(_ytQueryCtrl.text.trim()),
+          loading: controller.youtubeLoading,
+          error: controller.youtubeError,
+          items: controller.youtubeResults.asMap().entries.map((entry) {
+            final index = entry.key;
+            final r = entry.value;
+            return StationListItem(
+              title: r.title,
+              imageUrl: r.thumbnailUrl,
+              isPlaying: controller.isYoutubePlaying(r),
+              onTap: () => controller.youtubeAutoPlayNext
+                  ? controller.playYoutubeResultAt(index)
+                  : controller.playYoutubeResult(r),
+              trailingAction: IconButton(
+                icon: const Icon(Icons.playlist_add, size: 20),
+                tooltip: 'Add to playlist',
+                onPressed: () => showAddToPlaylistSheet(context, r),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 

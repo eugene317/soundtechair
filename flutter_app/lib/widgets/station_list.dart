@@ -8,11 +8,18 @@ class StationListItem {
   final bool isPlaying;
   final VoidCallback onTap;
 
+  /// Optional trailing widget slot (e.g. an "add to playlist" IconButton, or
+  /// a PopupMenuButton for a playlist library row) - a widget slot rather
+  /// than a bare icon+callback so different callers can render entirely
+  /// different trailing controls without a second bespoke list-row widget.
+  final Widget? trailingAction;
+
   const StationListItem({
     required this.title,
     this.imageUrl,
     this.isPlaying = false,
     required this.onTap,
+    this.trailingAction,
   });
 }
 
@@ -118,6 +125,7 @@ class _StationTile extends StatelessWidget {
               _StationIcon(imageUrl: item.imageUrl, size: 34),
               const SizedBox(width: 12),
               Expanded(child: Text(item.title, overflow: TextOverflow.ellipsis)),
+              if (item.trailingAction != null) item.trailingAction!,
             ],
           ),
         ),
