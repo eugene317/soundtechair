@@ -88,7 +88,17 @@ class SpeakerController extends ChangeNotifier {
   int _ticksSinceCommand = 0;
   int? _lastElapsedSeconds;
 
+  /// A once-per-second, UI-only estimate of elapsed playback time,
+  /// interpolated between the real 5-second now_playing polls so the
+  /// on-screen timer/progress bar ticks smoothly instead of visibly jumping
+  /// by ~5 every poll. Resynced to the real polled value on every
+  /// refreshStatus() tick, so drift never accumulates for more than one poll
+  /// interval. The actual auto-advance logic keeps using the real polled
+  /// NowPlaying.elapsedSeconds, never this - this field is display-only.
+  int? _displayElapsedSeconds;
+
   Timer? _pollTimer;
+  Timer? _displayTickTimer;
   Timer? _volumeDebounceTimer;
   Timer? _retryTimer;
 
@@ -110,11 +120,20 @@ class SpeakerController extends ChangeNotifier {
 
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => refreshStatus());
+
+    _displayTickTimer?.cancel();
+    _displayTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (nowPlaying?.isPlaying == true && _displayElapsedSeconds != null) {
+        _displayElapsedSeconds = _displayElapsedSeconds! + 1;
+        notifyListeners();
+      }
+    });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _displayTickTimer?.cancel();
     _volumeDebounceTimer?.cancel();
     _retryTimer?.cancel();
     super.dispose();
@@ -196,6 +215,11 @@ class SpeakerController extends ChangeNotifier {
       final vol = await XmlApiClient.getVolumeStatus(ip);
       nowPlaying = np;
       speakerReachable = true;
+      // Resync the smooth display ticker to the real polled value every
+      // time - this is what keeps interpolation drift bounded to at most
+      // one poll interval, and immediately reflects a track change (new
+      // elapsed=0) rather than waiting for the local ticker to catch up.
+      _displayElapsedSeconds = np.elapsedSeconds;
       if (!isDraggingVolume) {
         volumeStatus = vol;
         displayVolume = vol.actual;
@@ -207,6 +231,25 @@ class SpeakerController extends ChangeNotifier {
       speakerReachable = false;
     }
     notifyListeners();
+  }
+
+  /// UI-facing "2:59 / 3:00" (or just "2:59" if duration's unknown) built
+  /// from the smooth once-per-second ticker, not the raw 5-second-stale
+  /// NowPlaying.elapsedSeconds - use this (not NowPlaying.progressText) for
+  /// anything shown on screen.
+  String? get displayProgressText {
+    final elapsed = _displayElapsedSeconds;
+    if (elapsed == null) return null;
+    final total = nowPlaying?.totalSeconds;
+    if (total == null || total <= 0) return NowPlaying.formatSeconds(elapsed);
+    return '${NowPlaying.formatSeconds(elapsed)} / ${NowPlaying.formatSeconds(total)}';
+  }
+
+  double? get displayProgressFraction {
+    final elapsed = _displayElapsedSeconds;
+    final total = nowPlaying?.totalSeconds;
+    if (elapsed == null || total == null || total <= 0) return null;
+    return (elapsed / total).clamp(0.0, 1.0);
   }
 
   Future<void> _refreshPresets() async {

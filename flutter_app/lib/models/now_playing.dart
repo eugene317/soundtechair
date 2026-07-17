@@ -36,7 +36,10 @@ class NowPlaying {
   /// sources, where totalSeconds is 0/absent.
   bool get hasKnownDuration => totalSeconds != null && totalSeconds! > 0;
 
-  static String _formatSeconds(int s) {
+  /// Public/static so callers with their own elapsed-time source (e.g. a
+  /// smooth once-per-second UI ticker interpolated between the actual
+  /// 5-second polls) can format consistently with this class.
+  static String formatSeconds(int s) {
     final m = s ~/ 60;
     final sec = s % 60;
     return '$m:${sec.toString().padLeft(2, '0')}';
@@ -45,8 +48,8 @@ class NowPlaying {
   /// "2:59 / 3:00" once duration is known, else just "2:59" (elapsed only).
   String? get progressText {
     if (elapsedSeconds == null) return null;
-    if (!hasKnownDuration) return _formatSeconds(elapsedSeconds!);
-    return '${_formatSeconds(elapsedSeconds!)} / ${_formatSeconds(totalSeconds!)}';
+    if (!hasKnownDuration) return formatSeconds(elapsedSeconds!);
+    return '${formatSeconds(elapsedSeconds!)} / ${formatSeconds(totalSeconds!)}';
   }
 
   /// 0.0-1.0 once duration is known, else null (nothing to show a determinate
