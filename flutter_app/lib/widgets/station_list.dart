@@ -52,15 +52,35 @@ class StationList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: gridColumns == null ? const BoxConstraints(maxHeight: 340) : null,
-      decoration: BoxDecoration(
-        color: const Color(0xFF161616),
-        border: Border.all(color: const Color(0xFF2A2A2A)),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      padding: const EdgeInsets.all(8),
-      child: _body(context),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // A search error doesn't hide still-playable results from an
+        // earlier successful search (or a cache loaded at app startup) -
+        // shown as a small banner alongside them, not instead of them. Sits
+        // outside the constrained Container below so its presence never
+        // changes that Container's own (bounded-vs-shrinkWrap) height
+        // handling for the two very different layout modes it supports.
+        if (error != null && items.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Search failed ($error) - showing previous results.',
+              style: const TextStyle(color: Colors.grey, fontSize: 11),
+            ),
+          ),
+        Container(
+          constraints: gridColumns == null ? const BoxConstraints(maxHeight: 340) : null,
+          decoration: BoxDecoration(
+            color: const Color(0xFF161616),
+            border: Border.all(color: const Color(0xFF2A2A2A)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: _body(context),
+        ),
+      ],
     );
   }
 
@@ -71,7 +91,7 @@ class StationList extends StatelessWidget {
         child: Text(Strings.searching, style: TextStyle(color: Colors.grey, fontSize: 12)),
       );
     }
-    if (error != null) {
+    if (error != null && items.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(12),
         child: Text('Error: $error', style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -104,6 +124,37 @@ class StationList extends StatelessWidget {
       shrinkWrap: true,
       itemCount: items.length,
       itemBuilder: (context, i) => _StationTile(item: items[i]),
+    );
+  }
+}
+
+/// A horizontally-scrolling strip of card-style tiles - reuses
+/// _StationCardTile's exact visual style (thumbnail filling the tile, small
+/// title just below it, still inside the same tile rather than pinned to
+/// its bottom edge, plus the green isPlaying border) at a fixed compact
+/// size, for a "shortcut row" context (e.g. the player card) rather than a
+/// full search results grid.
+class StationShortcutStrip extends StatelessWidget {
+  final List<StationListItem> items;
+
+  const StationShortcutStrip({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(Strings.nothingFound, style: TextStyle(color: Colors.grey, fontSize: 12)),
+      );
+    }
+    return SizedBox(
+      height: 108,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (context, i) => const SizedBox(width: 8),
+        itemBuilder: (context, i) => SizedBox(width: 88, child: _StationCardTile(item: items[i])),
+      ),
     );
   }
 }
@@ -154,11 +205,17 @@ class _StationGridTile extends StatelessWidget {
     return Material(
       color: item.isPlaying ? const Color(0xFF16311F) : const Color(0xFF1F1F1F),
       borderRadius: BorderRadius.circular(10),
+      // Requested 2026-07-23 (TuneIn only - this tile style is exclusive to
+      // the radio grid, see StationList's own doc comment): the icon now
+      // fills the tile's FULL height as a square on the left, not a small
+      // fixed-size icon with padding around it - clipBehavior is what keeps
+      // the image's hard rectangular corners from poking out past the
+      // tile's own rounded ones now that it's flush against three edges.
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: item.onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           decoration: item.isPlaying
               ? BoxDecoration(
                   borderRadius: BorderRadius.circular(10),
@@ -166,17 +223,36 @@ class _StationGridTile extends StatelessWidget {
                 )
               : null,
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _StationIcon(imageUrl: item.imageUrl, size: 26),
-              const SizedBox(width: 6),
+              AspectRatio(
+                aspectRatio: 1,
+                child: item.imageUrl != null
+                    ? Image.network(
+                        item.imageUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          color: const Color(0xFF2A2A2A),
+                          child: const Center(child: Text('📻')),
+                        ),
+                      )
+                    : Container(color: const Color(0xFF2A2A2A), child: const Center(child: Text('📻'))),
+              ),
               Expanded(
-                child: Text(
-                  item.title,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 2,
-                  style: const TextStyle(fontSize: 10.5),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: Center(
+                    child: Text(
+                      item.title,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 3,
+                      style: const TextStyle(fontSize: 10.5),
+                    ),
+                  ),
                 ),
               ),
+              if (item.trailingAction != null)
+                Padding(padding: const EdgeInsets.only(right: 2), child: Transform.scale(scale: 0.8, child: item.trailingAction)),
             ],
           ),
         ),

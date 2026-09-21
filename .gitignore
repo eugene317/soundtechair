@@ -1,0 +1,12 @@
+soundcloud-config.json
+gemini-config.json
+claude-config.json
+grok-config.json
+.claude/settings.local.json
+# Runtime cache and logs - never commit
+stream-cache/
+*.log
+# Redistributable tools - download separately, not project code
+ffmpeg.exe
+yt-dlp.exe
+tools/cloudflared.exe

@@ -1,16 +1,46 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <!-- Android platform requirement (not a choice this app makes) for any
+         app to see nearby WiFi network names/signal levels via the
+         wifi_scan package - used only in the "Setup New Speaker" wizard's
+         network picker (see WifiSetupScreen), which shows the user's own
+         plain-language explanation before the OS permission prompt appears.
+         FINE (not COARSE) specifically - Android requires FINE for WiFi
+         scan results; COARSE alone does not unlock them, so it isn't
+         declared here. Never used for background tracking - no
+         ACCESS_BACKGROUND_LOCATION anywhere in this app. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- The wifi_scan plugin's own library manifest declares ACCESS_COARSE_LOCATION
+         (Gradle's manifest merger would otherwise union it into the final APK
+         alongside FINE above). COARSE is deliberately suppressed here to match
+         the FINE-only story documented above - COARSE alone doesn't unlock WiFi
+         scan results on this OS version, so shipping it would be an unused
+         permission with no purpose. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove"/>
+    <!-- audio_service: keeps the app's single Flutter engine (and everything
+         running in it - the preset-button WebSocket relay, poll timers) alive
+         as a real Android foreground service with a lock-screen/notification
+         media player, instead of getting killed once the UI is closed/swiped
+         away or the screen stays locked a while (see PresetButtonRelayService
+         and SoundTouchAudioHandler's own doc comments for why this matters). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- Declared alongside MEDIA_PLAYBACK above because the AudioService
+         <service> below now also declares the connectedDevice foreground
+         service type (see its own comment for why) - Android 14+ requires a
+         matching FOREGROUND_SERVICE_<TYPE> permission per declared type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="soundtouch_control"
+        android:label="SoundTech Air"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:networkSecurityConfig="@xml/network_security_config"
-        android:usesCleartextTraffic="true">
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -19,7 +49,9 @@
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
             <!-- Specifies an Android theme to apply to this Activity as soon as
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues
@@ -38,6 +70,59 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- audio_service's own foreground service + media-button receiver -
+             required verbatim (exact names) per its current setup docs.
+
+             foregroundServiceType is declared here explicitly (audio_service's
+             own plugin-side AndroidManifest.xml declares no <service> at all -
+             it's this app's own override, mirroring what audio_service's docs
+             say to add, that supplies this element) as
+             "mediaPlayback|connectedDevice" rather than just "mediaPlayback":
+             this service is genuinely used two ways simultaneously, and each
+             needs its own Play-justified type rather than stretching one type
+             to cover both -
+               - mediaPlayback: the lock-screen/notification transport
+                 controls really do control the real speaker's playback - that
+                 part matches mediaPlayback's permitted use case exactly.
+               - connectedDevice: the actual reason this service stays alive
+                 REGARDLESS of whether the speaker is playing anything is to
+                 keep each SpeakerSession's 5s poll timer and its
+                 PresetButtonRelayService WebSocket connection to the paired
+                 speaker running continuously (see SoundTouchAudioHandler's
+                 doc comment) - i.e. "interactions with an external device over
+                 a network connection," connectedDevice's own documented
+                 permitted use case, not "continue audio/video playback,"
+                 mediaPlayback's. This app already declares CHANGE_WIFI_STATE
+                 above, one of connectedDevice's accepted trigger permissions.
+             Android allows a single foreground service to declare multiple
+             types this way (space/pipe-separated), and permits calling
+             startForeground() with any subset of the declared types - this
+             plugin's own Java code never passes an explicit type constant, so
+             it keeps working unchanged against this wider declaration. No
+             change to androidStopForegroundOnPause/AudioServiceConfig
+             (main.dart) or to PresetButtonRelayService/the poll timers - the
+             always-on keep-alive behavior itself is unchanged; only which
+             Play-documented use case(s) justify it, in the store listing's
+             separate foreground-service-type disclosure, changes. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback|connectedDevice"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -48,6 +133,14 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Required by url_launcher on Android 11+ (package visibility) so
+             launchUrl can find a browser to open the Privacy Policy link
+             (SettingsScreen) - without this, launchUrl silently fails to
+             find any handler even though a browser is installed. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

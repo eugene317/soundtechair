@@ -2,6 +2,30 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+/// Thrown by [SoapClient.play] instead of ever sending a blank/whitespace
+/// CurrentURI to the device. Last-line-of-defense for the field incident
+/// (2026-07-2x) where a real SoundTouch 10 received a SetAVTransportURI
+/// with a completely empty CurrentURI and rejected it with UPnP error 402
+/// "Can't play. No URI supplied." - confirmed via direct curl reproduction
+/// against the same device (a non-empty test URL was accepted fine in the
+/// same OFF/INVALID_SOURCE state; an explicitly empty CurrentURI reproduced
+/// the identical error text). Every known caller already validates its own
+/// url/id before reaching here (see playPreset's guard, TuneInApiClient's
+/// resolveStreamUrl never returning an empty string, etc.) - this guard
+/// exists so that if any of those upstream checks ever regresses, the
+/// failure shows up as ONE clear,
+/// translatable status message instead of a raw SOAP/UPnP exception (or,
+/// worse, a "successful" HTTP 200 that silently does nothing) reaching the
+/// user's screen.
+class BlankStreamUrlException implements Exception {
+  const BlankStreamUrlException();
+
+  static const message = 'Nothing to play - try again.';
+
+  @override
+  String toString() => message;
+}
+
 /// Direct UPnP AVTransport SOAP control, ported 1:1 from SoundTouch-Common.ps1's
 /// Invoke-SoapAction / Start-StationPlayback / Stop-StationPlayback. Unlike the
 /// PowerShell original (which never reads the response body), failures here
@@ -92,6 +116,13 @@ class SoapClient {
   /// unless we tell it otherwise), which is what lets now_playing report a
   /// real elapsed/total instead of just an ever-climbing elapsed counter.
   static Future<void> play(String speakerIp, String streamUrl, {String? title, Duration? duration}) async {
+    // Last-line-of-defense guard - see BlankStreamUrlException's doc comment.
+    // Deliberately checked on the TRIMMED value (whitespace-only is just as
+    // unplayable as truly empty) while still sending the caller's original
+    // streamUrl below unmodified - this only ever rejects, never rewrites.
+    if (streamUrl.trim().isEmpty) {
+      throw const BlankStreamUrlException();
+    }
     final escapedUrl = _escapeXml(streamUrl);
     final metadata = _buildDidlLiteMetadata(streamUrl: streamUrl, title: title, duration: duration);
     final escapedMetadata = _escapeXml(metadata);

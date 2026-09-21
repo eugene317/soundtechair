@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter config *)",
+      "Bash(xargs -I{} echo {})",
+      "Read(//c//**)",
+      "Bash(find 'C:\\\\Users\\\\eugen' -iname network_info_plus_web* -type d)",
+      "Bash(C:/Users/eugen/AppData/Local/Pub/Cache/hosted/pub.dev/network_info_plus-6.1.4)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(npm --version)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(npx --yes serve --version)",
+      "Bash(npm init *)",
+      "Bash(npx playwright *)",
+      "Bash(curl -sI http://localhost:4173)",
+      "Bash(node drive.js)",
+      "Bash(node debug.js)"
+    ]
+  }
+}

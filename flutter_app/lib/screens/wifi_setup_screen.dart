@@ -1,33 +1,36 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
-import '../services/wifi_control_service.dart';
-import '../services/wifi_provisioning_service.dart';
+import '../services/bose_wifi_setup_service.dart';
+import '../services/discovery.dart' show isSetupModeSubnet;
 import '../state/speaker_controller.dart';
+import '../widgets/searching_overlay.dart';
 
-enum _Step { instructions, checking, form, submitting, reconnectPrompt, error }
+enum _Step { instructions, checking, form, submitting, done, error }
 
-/// New/factory-reset speaker WiFi setup wizard. Based on a single
-/// community-reverse-engineered protocol (see WifiProvisioningService docs) -
-/// NOT official Bose documentation, so this screen is explicit and honest
-/// about being a best-effort flow rather than a guaranteed one.
+/// New/factory-reset speaker WiFi setup wizard.
 ///
-/// Deliberately does NOT attempt to programmatically join the speaker's
-/// temporary WiFi network (that needs native Android WifiNetworkSpecifier
-/// code, a real platform-specific risk of its own) - instead the two
-/// WiFi-switching moments are manual steps the user does themselves in their
-/// phone's own WiFi settings, which is simpler and far more reliable for a v1.
+/// Step 1 (connecting to the speaker's own temporary setup AP) is
+/// deliberately MANUAL - the user connects via their phone's normal WiFi
+/// Settings, same as the original Bose flow. An automatic version of this
+/// step (WifiNetworkSpecifier + ConnectivityManager.requestNetwork, matching
+/// the official Bose app's own approach - confirmed by decompiling its APK,
+/// 2026-07-22) was tried and reverted: even after fixing a genuine missing-
+/// permission bug (CHANGE_NETWORK_STATE), the automatic connect still failed
+/// unreliably against a real speaker in the field (2026-07-22) - manual is
+/// what's actually known to work, so that's what ships. See
+/// lib/services/wifi_control_service.dart's git history if that automatic
+/// path is ever worth revisiting.
 ///
-/// Step 2 (picking the home network) uses the PHONE's own WiFi scan (via the
-/// wifi_scan package) rather than the speaker's own performWirelessSiteSurvey
-/// action - the speaker's scan-RESPONSE format was never actually documented
-/// anywhere during research (only the request shape was confirmed), while
-/// Android's own WiFi scan API is standard and well-documented. Since the
-/// phone is physically right next to the speaker during setup, it should see
-/// the same home network the speaker itself would.
+/// Step 2/3 (picking the home network + sending credentials) still uses the
+/// speaker's own WebSocket setup protocol (BoseWifiSetupService) - the same
+/// protocol the official app uses - which gets a real, speaker-confirmed
+/// "connected" push message instead of guessing from a timeout. That part
+/// was never reported as broken, only the automatic-connect step was.
 class WifiSetupScreen extends StatefulWidget {
   const WifiSetupScreen({super.key});
 
@@ -38,7 +41,9 @@ class WifiSetupScreen extends StatefulWidget {
 class _WifiSetupScreenState extends State<WifiSetupScreen> {
   _Step _step = _Step.instructions;
   String _error = '';
-  String? _resolvedSetupIp;
+  String _statusMessage = '';
+
+  String? _deviceId;
 
   final _ssidCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
@@ -51,33 +56,68 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   String? _selectedSsid;
   bool _manualEntry = false;
 
-  /// null = attempting/not yet resolved, true = the disconnect() call
-  /// itself reported success (doesn't guarantee Android actually rejoined
-  /// the home network, just that this step ran without error), false =
-  /// failed/threw.
-  bool? _autoReconnectAttempted;
+  // Gates _doneStep(): true from the moment the speaker confirms it joined
+  // the home network until THIS PHONE's own WiFi has actually left the
+  // speaker's temporary setup AP (192.0.2.0/24 - see isSetupModeSubnet).
+  // Before this existed, "Find the Speaker" was tappable immediately, and a
+  // user tapping it before their phone finished switching back (which can
+  // take several seconds - Android doesn't drop a "no internet" AP the
+  // instant a better network is available) sent them into a scan that could
+  // only fail or stall, with no indication why. Confirmed as a real
+  // reported point of confusion, 2026-07-25.
+  bool _waitingForHomeWifi = true;
+  Timer? _homeWifiCheckTimer;
+  final _networkInfo = NetworkInfo();
 
   @override
   void dispose() {
     _ssidCtrl.dispose();
     _passwordCtrl.dispose();
+    _homeWifiCheckTimer?.cancel();
     super.dispose();
   }
 
+  void _watchForHomeWifi() {
+    _waitingForHomeWifi = true;
+    _homeWifiCheckTimer?.cancel();
+    _homeWifiCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      String? ip;
+      try {
+        ip = await _networkInfo.getWifiIP();
+      } catch (_) {
+        ip = null;
+      }
+      // A null IP is treated as "still switching over," same as still being
+      // on the setup subnet - not as "done" - since network_info_plus can
+      // briefly report nothing at all mid-handoff, and a false "ready" here
+      // would just recreate the exact premature-tap problem this exists to
+      // prevent.
+      final stillOnSetupAp = ip == null || isSetupModeSubnet(ip);
+      if (!mounted || stillOnSetupAp) return;
+      _homeWifiCheckTimer?.cancel();
+      setState(() => _waitingForHomeWifi = false);
+    });
+  }
+
   Future<void> _checkSetupMode() async {
-    setState(() => _step = _Step.checking);
-    final inSetupMode = await WifiProvisioningService.isInSetupMode();
+    setState(() {
+      _step = _Step.checking;
+      _statusMessage = 'Verifying speaker...';
+    });
+    final deviceId = await BoseWifiSetupService.getDeviceId();
     if (!mounted) return;
-    if (inSetupMode) {
-      setState(() => _step = _Step.form);
-      unawaited(_scanNetworks());
-    } else {
+    if (deviceId == null) {
       setState(() {
         _error = 'Could not reach the speaker in setup mode. Make sure your phone is connected to the '
-            'speaker\'s temporary WiFi (e.g. "Bose SoundTouch XXXXXX"), then try again.';
+            'speaker\'s temporary WiFi (its name is usually the speaker model followed by a string '
+            'of numbers), then try again.';
         _step = _Step.error;
       });
+      return;
     }
+    _deviceId = deviceId;
+    setState(() => _step = _Step.form);
+    unawaited(_scanNetworks());
   }
 
   Future<void> _scanNetworks() async {
@@ -85,6 +125,27 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       _scanLoading = true;
       _scanError = null;
     });
+
+    // Checked WITHOUT triggering the OS prompt yet (askPermissions: false) -
+    // if location permission genuinely hasn't been decided on yet, show our
+    // OWN plain-language rationale FIRST, so the system permission dialog
+    // isn't the first and only explanation the user gets for why a speaker
+    // WiFi-setup screen is asking for their location. Skipped entirely once
+    // the user has already decided (granted or denied) - this is a one-time
+    // explanation, not a repeated nag.
+    final currentStatus = await WiFiScan.instance.canStartScan(askPermissions: false);
+    if (currentStatus == CanStartScan.noLocationPermissionRequired) {
+      if (!mounted) return;
+      final proceed = await _showLocationRationale();
+      if (!proceed) {
+        setState(() {
+          _scanLoading = false;
+          _scanError = 'Location permission is needed to list nearby WiFi networks. '
+              'You can still type the network name in manually below.';
+        });
+        return;
+      }
+    }
 
     final canStart = await WiFiScan.instance.canStartScan(askPermissions: true);
     if (canStart != CanStartScan.yes) {
@@ -112,12 +173,23 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     }
 
     final results = await WiFiScan.instance.getScannedResults();
+    // The network the phone is CURRENTLY connected to during this step is
+    // the speaker's own temporary setup AP (see this screen's own doc
+    // comment), never the user's home network - excluded below so it can
+    // never be tapped by mistake. Confirmed as a real reported point of
+    // confusion: the setup AP's own name showed up right at the top of a
+    // list explicitly asking "which is your HOME network?" (naturally the
+    // strongest signal, since the phone is actively associated with it),
+    // and users assumed picking the network they were visibly already
+    // connected to was the right/expected choice.
+    final currentSsid = await _currentConnectedSsid();
     // Dedupe by SSID (multiple access points/mesh nodes can share one name),
     // keeping the strongest signal; drop hidden (blank-SSID) networks - no
     // name to show/select in a picker.
     final bySsid = <String, WiFiAccessPoint>{};
     for (final ap in results) {
       if (ap.ssid.isEmpty) continue;
+      if (ap.ssid == currentSsid) continue;
       final existing = bySsid[ap.ssid];
       if (existing == null || ap.level > existing.level) {
         bySsid[ap.ssid] = ap;
@@ -130,6 +202,55 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       _networks = networks;
       _scanLoading = false;
     });
+  }
+
+  Future<String?> _currentConnectedSsid() async {
+    try {
+      final raw = await _networkInfo.getWifiName();
+      if (raw == null) return null;
+      // Android wraps this in literal double-quotes (a long-documented
+      // network_info_plus/ConnectivityManager quirk) - stripped so this
+      // compares equal to WiFiAccessPoint.ssid, which never has them.
+      return raw.replaceAll('"', '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Plain-language explanation shown BEFORE the OS location-permission
+  /// prompt (see [_scanNetworks]) - Android requires Location permission for
+  /// ANY app to list nearby WiFi network names (a platform-wide restriction,
+  /// since WiFi scan data can be used to estimate physical location - not
+  /// something this app or the wifi_scan package chose). Stating that
+  /// plainly, and exactly what this app actually does with it (nothing
+  /// beyond showing the picker below - never recorded, stored, or sent
+  /// anywhere), is both honest and the accurate basis for this app's Play
+  /// Store Data Safety declaration (location: app functionality only, not
+  /// shared, not stored).
+  Future<bool> _showLocationRationale() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Location permission'),
+        content: const Text(
+          'Android requires Location permission for any app to see nearby WiFi network names - '
+          'this is a platform requirement, not a choice this app makes.\n\n'
+          'It\'s used only to show you the list of WiFi networks below, so you can pick your home '
+          'network for the speaker. Your location is never recorded, stored, or sent anywhere.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not now'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   bool _looksOpen(WiFiAccessPoint ap) {
@@ -154,51 +275,92 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       });
       return;
     }
-    setState(() => _step = _Step.submitting);
-    try {
-      final ip = await WifiProvisioningService.submitWifiProfile(
-        ssid: _ssidCtrl.text.trim(),
-        password: _passwordCtrl.text,
-        isOpenNetwork: _isOpenNetwork,
-      );
-      if (!mounted) return;
+    final deviceId = _deviceId;
+    if (deviceId == null) {
       setState(() {
-        _resolvedSetupIp = ip;
-        _step = _Step.reconnectPrompt;
+        _error = 'Lost the connection to the speaker. Try again from the start.';
+        _step = _Step.error;
       });
-      unawaited(_attemptAutoReconnect());
-    } catch (e) {
-      if (!mounted) return;
+      return;
+    }
+    setState(() {
+      _step = _Step.submitting;
+      _statusMessage = 'Sending WiFi credentials to the speaker...';
+    });
+    final result = await BoseWifiSetupService.sendWifiCredentials(
+      deviceId: deviceId,
+      homeSsid: _ssidCtrl.text.trim(),
+      homePassword: _passwordCtrl.text,
+      isOpenNetwork: _isOpenNetwork,
+      onStatus: (status) {
+        if (mounted) setState(() => _statusMessage = status);
+      },
+    );
+    if (!mounted) return;
+    if (result.success) {
+      setState(() => _step = _Step.done);
+      _watchForHomeWifi();
+    } else {
+      // result.detail names the specific stage the handshake died at (see
+      // BoseWifiSetupService.sendWifiCredentials's doc comment) - shown
+      // as-is instead of a generic "check your password" message, since a
+      // wrong password is only one of several very different ways this can
+      // fail (2026-07-28: a field report of this failing turned out to have
+      // nothing to do with the password, but the old message said exactly
+      // that every time).
       setState(() {
-        _error = '$e';
+        _error = result.detail ?? 'The speaker didn\'t confirm it joined "${_ssidCtrl.text.trim()}".';
         _step = _Step.error;
       });
     }
   }
 
-  /// Best-effort: disconnects the phone from the speaker's temporary AP,
-  /// which (since the home network is normally already saved on the phone
-  /// from before) should let Android auto-reconnect to it on its own,
-  /// without the user needing to go into WiFi settings manually. This is a
-  /// real platform-specific risk (WifiManager.disconnect() behavior varies
-  /// across Android versions/OEMs, especially since Android 10+ restricts
-  /// direct WiFi manipulation) - so the manual instructions stay visible
-  /// regardless of what this reports, as a guaranteed fallback.
-  Future<void> _attemptAutoReconnect() async {
-    setState(() => _autoReconnectAttempted = null);
-    try {
-      final result = await WifiControlService.disconnect();
-      if (!mounted) return;
-      setState(() => _autoReconnectAttempted = result);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _autoReconnectAttempted = false);
+  void _searchForSpeaker() {
+    // Additive, not destructive: the newly-provisioned speaker is added to
+    // whatever's already connected, rather than replacing it.
+    final controller = context.read<SpeakerController>();
+    // Captured BEFORE discoverMoreSpeakers() (fire-and-forget, so this scan
+    // hasn't had a chance to land yet) - true only for the "already had a
+    // speaker, this is an additional one" case. When this is the very
+    // FIRST speaker, HomeScreen's own body IS a live SearchingOverlay right
+    // now (see its `_showDiscovery` gate) - popping back to it below is
+    // already the correct, reactive "Continue to Player" screen, and used
+    // to get a second, REDUNDANT SearchingOverlay pushed unconditionally on
+    // top of it here - that second instance has no onDone (same as the
+    // drawer's "Add / rescan speakers" entry), so its own "Continue to
+    // Player" button could never appear no matter what, until the user
+    // backed out of it to reveal the real one underneath. Confirmed as a
+    // real reported bug, 2026-07-25.
+    final hadExistingSpeaker = controller.sessions.isNotEmpty;
+    controller.discoverMoreSpeakers();
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    if (hadExistingSpeaker) {
+      // Lands on a fresh SearchingOverlay instead of popping straight back
+      // to the Player page - the speaker having just joined the home
+      // network a moment ago means the FIRST scan attempt can easily run
+      // before it's actually finished getting a DHCP lease/booting up on
+      // it, and SpeakerController._scanForSpeakers already retries every
+      // 10s on a miss. Also gives the phone itself a few seconds to fall
+      // back onto its own known home WiFi now that the speaker's temporary
+      // AP has disappeared - a manual switch may still be needed if it
+      // doesn't. HomeScreen itself has no equivalent screen to fall back
+      // onto in this case (sessions was already non-empty, so it's showing
+      // the normal Player page, not discovery), so this one is needed.
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchingOverlay()));
     }
   }
 
-  void _searchForSpeaker() {
-    context.read<SpeakerController>().rescanSpeaker();
-    Navigator.of(context).popUntil((route) => route.isFirst);
+  void _retry() {
+    setState(() {
+      _step = _Step.instructions;
+      _error = '';
+      _deviceId = null;
+      _selectedSsid = null;
+      _manualEntry = false;
+      _ssidCtrl.clear();
+      _passwordCtrl.clear();
+      _isOpenNetwork = false;
+    });
   }
 
   @override
@@ -217,25 +379,29 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       case _Step.instructions:
         return _instructionsStep();
       case _Step.checking:
-        return const Center(child: CircularProgressIndicator());
+        return _busyStep(_statusMessage);
       case _Step.form:
         return _formStep();
       case _Step.submitting:
-        return const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Sending WiFi credentials to the speaker...'),
-            ],
-          ),
-        );
-      case _Step.reconnectPrompt:
-        return _reconnectStep();
+        return _busyStep(_statusMessage);
+      case _Step.done:
+        return _doneStep();
       case _Step.error:
         return _errorStep();
     }
+  }
+
+  Widget _busyStep(String message) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(message, textAlign: TextAlign.center),
+        ],
+      ),
+    );
   }
 
   Widget _instructionsStep() {
@@ -244,9 +410,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'This is for a new or factory-reset speaker that has no WiFi yet.\n\n'
-          'This is not official Bose documentation - it\'s based on community research. '
-          'It may not work on the first try - just try again if needed.',
+          'This is for a new or factory-reset speaker that has no WiFi yet.',
           style: TextStyle(fontSize: 13, color: Colors.grey),
         ),
         const SizedBox(height: 20),
@@ -254,7 +418,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         const SizedBox(height: 6),
         const Text(
           'Open your phone\'s WiFi Settings, and connect it to the speaker\'s temporary WiFi '
-          '(usually named "Bose SoundTouch XXXXXX", no password). '
+          '(usually named after the speaker model, followed by a string of numbers, no password). '
           'If asked "No internet, stay connected?", choose "Yes/Stay Connected".',
         ),
         const SizedBox(height: 16),
@@ -414,64 +578,49 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     );
   }
 
-  Widget _reconnectStep() {
+  Widget _doneStep() {
+    if (_waitingForHomeWifi) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle, color: Color(0xFF22C55E), size: 48),
+          const SizedBox(height: 12),
+          Text('The speaker joined "${_ssidCtrl.text.trim()}".'),
+          const SizedBox(height: 20),
+          const Center(child: CircularProgressIndicator()),
+          const SizedBox(height: 16),
+          const Text(
+            'Waiting for your phone to switch back to your home WiFi...',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'If it doesn\'t switch back on its own in a few seconds, switch it back manually in WiFi Settings.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton(
+              onPressed: () {
+                _homeWifiCheckTimer?.cancel();
+                setState(() => _waitingForHomeWifi = false);
+              },
+              child: const Text('Already back on your WiFi? Continue anyway'),
+            ),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         const Icon(Icons.check_circle, color: Color(0xFF22C55E), size: 48),
         const SizedBox(height: 12),
-        Text('WiFi credentials sent (via $_resolvedSetupIp).'),
-        const SizedBox(height: 16),
-        const Text('Step 3', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        _autoReconnectStatus(),
-        const SizedBox(height: 8),
-        const Text(
-          'Wait about 15-30 seconds while the speaker joins your home WiFi. '
-          'If your phone\'s WiFi does NOT switch back automatically (see above), '
-          'switch it back manually in WiFi Settings, then tap the button below to find the speaker.',
-        ),
+        Text('The speaker joined "${_ssidCtrl.text.trim()}".'),
         const SizedBox(height: 20),
-        ElevatedButton(onPressed: _searchForSpeaker, child: const Text('I\'m Reconnected — Find the Speaker')),
-      ],
-    );
-  }
-
-  Widget _autoReconnectStatus() {
-    if (_autoReconnectAttempted == null) {
-      return const Row(
-        children: [
-          SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-          SizedBox(width: 8),
-          Text('Attempting to automatically switch your phone\'s WiFi back...', style: TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      );
-    }
-    if (_autoReconnectAttempted == true) {
-      return const Row(
-        children: [
-          Icon(Icons.check, size: 16, color: Color(0xFF22C55E)),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'Attempted to automatically switch your WiFi back. Just confirm at the top of your screen.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF22C55E)),
-            ),
-          ),
-        ],
-      );
-    }
-    return const Row(
-      children: [
-        Icon(Icons.info_outline, size: 16, color: Colors.grey),
-        SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            'Not automated on this phone - manual switch needed.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        ),
+        ElevatedButton(onPressed: _searchForSpeaker, child: const Text('Find the Speaker')),
       ],
     );
   }
@@ -485,7 +634,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         const SizedBox(height: 12),
         Text(_error),
         const SizedBox(height: 20),
-        ElevatedButton(onPressed: () => setState(() => _step = _Step.instructions), child: const Text('Try Again')),
+        ElevatedButton(onPressed: _retry, child: const Text('Try Again')),
       ],
     );
   }

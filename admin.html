@@ -51,6 +51,24 @@
 
   .muted { color: #666; font-size: 12px; padding: 12px; text-align: center; }
 
+  .install-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+  }
+  .install-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .install-location { font-weight: 700; font-size: 14px; }
+  .speaker-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .speaker-row { background: #161616; border: 1px solid #262626; border-radius: 10px; padding: 10px 12px; }
+  .speaker-main { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .log-toggle-btn {
+    background: none; border: 1px solid #333; color: #888; border-radius: 20px; padding: 5px 12px;
+    font-size: 11px; cursor: pointer; flex-shrink: 0;
+  }
+  .status-btn.playing { background: #16311f; color: #22c55e; }
+  .status-btn.playing .dot { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .speaker-log { margin-top: 8px; border-top: 1px solid #262626; padding-top: 8px; }
+  .speaker-log table { font-size: 11px; }
+  .speaker-log th, .speaker-log td { padding: 4px 8px; border-bottom: 1px solid #202020; }
+
   .server-card {
     background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 16px 18px;
     display: flex; justify-content: space-between; align-items: center;
@@ -81,8 +99,17 @@
   </div>
 
   <div class="section">
-    <h3>Connected Local Apps</h3>
-    <div class="agent-list" id="agentList"></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h3 style="margin:0;">Backend Processes</h3>
+      <button class="log-toggle-btn" id="healBtn" onclick="healNow()" style="border-color:#22c55e; color:#22c55e;">🔧 Check &amp; Fix All</button>
+    </div>
+    <div class="agent-list" id="processList"></div>
+    <div id="healResult" class="muted" style="text-align:left; padding: 8px 4px 0;"></div>
+  </div>
+
+  <div class="section">
+    <h3>Connected Users (<span id="installCount">0</span>)</h3>
+    <div id="installList"></div>
   </div>
 
   <div class="section">
@@ -99,6 +126,22 @@
 
 <script>
 let currentlyRunning = true;
+// Per spec: logs are hidden by default, one "Logs" toggle per speaker to
+// open them on demand - tracked here (by deviceId) so the open/closed state
+// survives the 3s auto-refresh below, which otherwise wipes and rebuilds the
+// whole install/speaker list (and any un-tracked open state with it) every
+// single tick.
+let expandedLogs = new Set();
+
+function toggleSpeakerLog(btn) {
+  const row = btn.closest('.speaker-row');
+  const deviceId = row.dataset.deviceId;
+  const logDiv = row.querySelector('.speaker-log');
+  const nowOpen = logDiv.style.display === 'none';
+  logDiv.style.display = nowOpen ? 'block' : 'none';
+  btn.textContent = 'Logs ' + (nowOpen ? '▴' : '▾');
+  if (nowOpen) expandedLogs.add(deviceId); else expandedLogs.delete(deviceId);
+}
 
 async function toggleServer() {
   const action = currentlyRunning ? 'stop' : 'start';
@@ -115,6 +158,92 @@ function renderServerStatus(running) {
   btn.textContent = running ? '⏹ Stop' : '▶ Run';
 }
 
+function renderProcesses(procs) {
+  const list = document.getElementById('processList');
+  list.innerHTML = '';
+  const items = Array.isArray(procs) ? procs : (procs ? [procs] : []);
+  if (items.length === 0) {
+    list.innerHTML = '<div class="muted">No process info.</div>';
+    return;
+  }
+  items.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'agent-card';
+    const running = !!p.running;
+    div.innerHTML = `
+      <div><div class="name">${p.label}</div></div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="status-btn ${running ? 'online' : 'offline'}">
+          <span class="dot"></span>${running ? 'Running' : 'Stopped'}
+        </button>
+      </div>`;
+    if (!running) {
+      const startBtn = document.createElement('button');
+      startBtn.className = 'toggle-btn run';
+      startBtn.textContent = '▶ Start';
+      startBtn.onclick = () => startProcess(p.name, startBtn);
+      div.querySelector('div:last-child').appendChild(startBtn);
+    }
+    list.appendChild(div);
+  });
+}
+
+async function startProcess(name, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const res = await fetch('/api/admin/start_process?name=' + encodeURIComponent(name));
+    const data = await res.json();
+    renderProcesses(data.processes);
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false;
+    btn.textContent = '▶ Start';
+  }
+}
+
+async function refreshProcesses() {
+  try {
+    const res = await fetch('/api/admin/processes');
+    const data = await res.json();
+    renderProcesses(data.processes);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// Runs the same deep health-check + auto-restart the background self-heal
+// loop does every 90s (see relay-server.ps1's Invoke-BackendHeal), just
+// on-demand and with the results actually shown here instead of only
+// landing quietly in the Activity Log below.
+async function healNow() {
+  const btn = document.getElementById('healBtn');
+  const out = document.getElementById('healResult');
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = 'Checking...';
+  out.textContent = '';
+  try {
+    const res = await fetch('/api/admin/heal_now');
+    const data = await res.json();
+    renderProcesses(data.processes);
+    const results = Array.isArray(data.results) ? data.results : [];
+    const fixed = results.filter(r => !r.wasHealthy);
+    if (fixed.length === 0) {
+      out.textContent = '✅ Lahat ok - walang kailangan ayusin.';
+    } else {
+      out.innerHTML = fixed.map(r =>
+        `${r.nowHealthy ? '🔧' : '⚠️'} <b>${r.name}</b>: ${r.nowHealthy ? 'na-restart, ok na' : 'sinubukan i-restart pero hindi pa rin ok'} — ${r.detail}`
+      ).join('<br>');
+    }
+  } catch (e) {
+    out.textContent = 'Error checking: ' + e;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevText;
+  }
+}
+
 async function refresh() {
   try {
     const res = await fetch('/api/admin/status');
@@ -122,25 +251,57 @@ async function refresh() {
 
     renderServerStatus(data.serverRunning !== false);
 
-    const agentList = document.getElementById('agentList');
-    agentList.innerHTML = '';
-    const agents = Array.isArray(data.agents) ? data.agents : (data.agents ? [data.agents] : []);
-    if (agents.length === 0) {
-      agentList.innerHTML = '<div class="muted">Walang connected na Local App.</div>';
+    const installList = document.getElementById('installList');
+    installList.innerHTML = '';
+    const installs = Array.isArray(data.installs) ? data.installs : (data.installs ? [data.installs] : []);
+    document.getElementById('installCount').textContent = installs.length;
+    if (installs.length === 0) {
+      installList.innerHTML = '<div class="muted">Walang connected na user.</div>';
     } else {
-      agents.forEach(a => {
-        const div = document.createElement('div');
-        div.className = 'agent-card';
-        const online = !!a.isOnline;
-        div.innerHTML = `
-          <div>
-            <div class="name">${a.speakerName || 'Unknown Speaker'}</div>
-            <div class="meta">IP: ${a.speakerIp || '?'} &nbsp;|&nbsp; Code: ${a.code} &nbsp;|&nbsp; Connected: ${a.connectedAt}</div>
+      installs.forEach(inst => {
+        const card = document.createElement('div');
+        card.className = 'install-card';
+        const speakers = Array.isArray(inst.speakers) ? inst.speakers : (inst.speakers ? [inst.speakers] : []);
+        const speakerRowsHtml = speakers.map(sp => {
+          const online = !!sp.isOnline;
+          const playing = online && !!sp.isPlaying;
+          const statusClass = playing ? 'playing' : (online ? 'online' : 'offline');
+          const label = playing ? '▶ Playing' : (online ? 'Online (idle)' : 'Offline');
+          const log = Array.isArray(sp.log) ? sp.log : (sp.log ? [sp.log] : []);
+          const logRowsHtml = log.length === 0
+            ? '<tr><td class="muted">Walang log.</td></tr>'
+            : log.map(l => `<tr><td>${l.time}</td><td>${l.event}</td></tr>`).join('');
+          // Kept open across the 3s auto-refresh below (which otherwise
+          // rebuilds this whole list from scratch every time) by re-checking
+          // expandedLogs, keyed by deviceId, on every render instead of only
+          // ever opening via the click handler.
+          const isOpen = expandedLogs.has(sp.deviceId);
+          return `
+            <div class="speaker-row" data-device-id="${sp.deviceId}">
+              <div class="speaker-main">
+                <div>
+                  <div class="name">${sp.speakerName || 'Unknown Speaker'}</div>
+                  <div class="meta">IP: ${sp.speakerIp || '?'} &nbsp;|&nbsp; Device ID: ${sp.deviceId} &nbsp;|&nbsp; First seen: ${sp.firstSeen}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <button class="status-btn ${statusClass}"><span class="dot"></span>${label}</button>
+                  <button class="log-toggle-btn" onclick="toggleSpeakerLog(this)">Logs ${isOpen ? '▴' : '▾'}</button>
+                </div>
+              </div>
+              <div class="speaker-log" style="display:${isOpen ? 'block' : 'none'}">
+                <table>${logRowsHtml}</table>
+              </div>
+            </div>`;
+        }).join('');
+        card.innerHTML = `
+          <div class="install-header">
+            <div>
+              <div class="install-location">📍 ${inst.location || 'Unknown'}</div>
+              <div class="meta">First seen: ${inst.firstSeen} &nbsp;|&nbsp; ${inst.speakerCount} speaker(s), ${inst.onlineCount} online, ${inst.playingCount} playing</div>
+            </div>
           </div>
-          <button class="status-btn ${online ? 'online' : 'offline'}">
-            <span class="dot"></span>${online ? 'Online' : 'Offline'}
-          </button>`;
-        agentList.appendChild(div);
+          <div class="speaker-list">${speakerRowsHtml}</div>`;
+        installList.appendChild(card);
       });
     }
 
@@ -167,7 +328,9 @@ async function refresh() {
 }
 
 refresh();
+refreshProcesses();
 setInterval(refresh, 3000);
+setInterval(refreshProcesses, 5000);
 </script>
 </body>
 </html>

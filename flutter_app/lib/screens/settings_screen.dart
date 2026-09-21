@@ -1,77 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../models/app_settings.dart';
-import '../services/search_api_client.dart';
-import '../services/settings_service.dart';
 import '../state/speaker_controller.dart';
-import 'home_screen.dart';
+import '../utils/strings.dart';
+import '../widgets/searching_overlay.dart';
+import 'stereo_pairing_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final bool isOnboarding;
-
-  const SettingsScreen({super.key, this.isOnboarding = false});
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _searchServerCtrl;
-  late final TextEditingController _streamProxyCtrl;
   final _manualIpCtrl = TextEditingController();
-  String? _testResult;
-  bool _testing = false;
+  late bool _openRemoteByDefault;
 
   @override
   void initState() {
     super.initState();
-    final settings = context.read<SpeakerController>().settings;
-    _searchServerCtrl = TextEditingController(
-      text: settings.searchServerUrl.isEmpty ? SettingsService.defaultSearchServerUrl : settings.searchServerUrl,
-    );
-    _streamProxyCtrl = TextEditingController(
-      text: settings.streamProxyUrl.isEmpty ? SettingsService.defaultStreamProxyUrl : settings.streamProxyUrl,
-    );
+    _openRemoteByDefault = context.read<SpeakerController>().settings.openRemoteByDefault;
   }
 
   @override
   void dispose() {
-    _searchServerCtrl.dispose();
-    _streamProxyCtrl.dispose();
     _manualIpCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _testSearchServer() async {
-    setState(() {
-      _testing = true;
-      _testResult = null;
-    });
-    try {
-      final results = await SearchApiClient.searchYoutube(_searchServerCtrl.text.trim(), 'test');
-      setState(() => _testResult = 'OK - got ${results.length} result(s)');
-    } catch (e) {
-      setState(() => _testResult = 'Error: $e');
-    }
-    setState(() => _testing = false);
-  }
-
-  Future<void> _saveAndContinue() async {
-    final controller = context.read<SpeakerController>();
-    final newSettings = AppSettings(
-      searchServerUrl: _searchServerCtrl.text.trim(),
-      streamProxyUrl: _streamProxyCtrl.text.trim(),
-    );
-    await controller.updateSettings(newSettings);
-    if (!mounted) return;
-    if (widget.isOnboarding) {
-      await controller.init();
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
-    } else {
-      Navigator.of(context).pop();
-    }
   }
 
   @override
@@ -83,91 +39,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.isOnboarding) ...[
-              const Text(
-                'Before we start, confirm the Online Server\'s address.',
-                style: TextStyle(fontSize: 15),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Open Remote by default'),
+              subtitle: const Text(
+                'Reopening the app goes straight to the Remote screen once a speaker is '
+                'connected, instead of the Player page. A fresh launch with no speaker '
+                'connected yet still goes to speaker scan first, same as always.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              const SizedBox(height: 16),
-            ],
-            const Text('Search Server URL', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
+              value: _openRemoteByDefault,
+              onChanged: (value) async {
+                setState(() => _openRemoteByDefault = value);
+                await context.read<SpeakerController>().setOpenRemoteByDefault(value);
+              },
+            ),
+            const Divider(height: 32),
+            const Text('Speakers', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Consumer<SpeakerController>(
+              builder: (context, controller, _) {
+                if (controller.sessions.isEmpty) {
+                  return const Text('Not connected');
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final session in controller.sessions)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(child: Text('${session.speaker.name} (${session.speaker.ip})')),
+                            IconButton(
+                              icon: const Icon(Icons.refresh, size: 20),
+                              tooltip: 'Rescan',
+                              onPressed: () => controller.rescanSpeaker(session),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 20),
+                              tooltip: 'Forget',
+                              onPressed: () => controller.forgetSpeaker(session),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (controller.statusMessage.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(controller.statusMessage, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      ),
+                  ],
+                );
+              },
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchingOverlay())),
+              child: const Text('Scan for speakers'),
+            ),
+            const SizedBox(height: 12),
             TextField(
-              controller: _searchServerCtrl,
+              controller: _manualIpCtrl,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
-                hintText: 'https://...trycloudflare.com',
+                labelText: 'Speaker IP',
+                hintText: '192.168.1.4',
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: _testing ? null : _testSearchServer,
-                  child: Text(_testing ? 'Testing...' : 'Test Search Server'),
-                ),
-                if (_testResult != null) ...[
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(_testResult!, style: const TextStyle(fontSize: 12))),
-                ],
-              ],
+            ElevatedButton(
+              onPressed: () {
+                final ip = _manualIpCtrl.text.trim();
+                if (ip.isNotEmpty) context.read<SpeakerController>().addSpeakerByIp(ip);
+              },
+              child: const Text('Add speaker by IP'),
             ),
-            const SizedBox(height: 24),
-            const Text('Stream Proxy URL', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            TextField(
-              controller: _streamProxyCtrl,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'https://...trycloudflare.com',
+            const Divider(height: 48),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.speaker_group),
+              label: const Text('Pair Speakers'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StereoPairingScreen()),
               ),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Run cloudflared tunnel --url http://localhost:5001 on the server, '
-              'then paste the printed https://...trycloudflare.com URL here to enable '
-              'playing search results.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+            const Divider(height: 48),
+            const Text('About', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.privacy_tip_outlined),
+              label: const Text('Privacy Policy'),
+              onPressed: _openPrivacyPolicy,
             ),
-            const SizedBox(height: 24),
-            ElevatedButton(onPressed: _saveAndContinue, child: const Text('Save & Continue')),
-            if (!widget.isOnboarding) ...[
-              const Divider(height: 48),
-              const Text('Speaker', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Consumer<SpeakerController>(
-                builder: (context, controller, _) => Text(
-                  controller.speaker != null
-                      ? '${controller.speaker!.name} (${controller.speaker!.ip})'
-                      : 'Not connected',
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => context.read<SpeakerController>().rescanSpeaker(),
-                child: const Text('Rescan now'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _manualIpCtrl,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Manual speaker IP override',
-                  hintText: '192.168.1.4',
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () {
-                  final ip = _manualIpCtrl.text.trim();
-                  if (ip.isNotEmpty) context.read<SpeakerController>().setManualIp(ip);
-                },
-                child: const Text('Connect to this IP'),
-              ),
-            ],
           ],
         ),
       ),
     );
+  }
+
+  // Falls back to a "coming soon" message if Strings.privacyPolicyUrl is ever
+  // blank again (e.g. a future rehost that isn't wired up yet) instead of
+  // attempting a broken launch, but the real hosted URL is now in place.
+  Future<void> _openPrivacyPolicy() async {
+    if (Strings.privacyPolicyUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Privacy policy link coming soon.')),
+      );
+      return;
+    }
+    final uri = Uri.parse(Strings.privacyPolicyUrl);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open $uri')),
+      );
+    }
   }
 }

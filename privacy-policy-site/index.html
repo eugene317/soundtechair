@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy - SoundTech Air</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5a5a5a;
+    --accent: #16a34a;
+    --card: #f6f7f8;
+    --border: #e2e2e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212;
+      --fg: #eaeaea;
+      --muted: #a8a8a8;
+      --accent: #22c55e;
+      --card: #1c1c1c;
+      --border: #2c2c2c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 {
+    font-size: 1.9rem;
+    margin-bottom: 4px;
+  }
+  .updated {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 28px;
+  }
+  .lede {
+    font-size: 1.05rem;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-size: 1.2rem;
+    margin-top: 40px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  h3 {
+    font-size: 1.02rem;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+  p { margin: 0 0 14px; }
+  ul { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 8px;
+  }
+  strong { color: var(--fg); }
+  code {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+  }
+  a { color: var(--accent); }
+  footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin-bottom: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="badge">Privacy Policy</div>
+  <h1>SoundTech Air</h1>
+  <div class="updated">Last updated: August 15, 2026</div>
+
+  <p class="lede">
+    SoundTech Air is a self-hosted controller app for Bose SoundTouch speakers on your
+    own local network. It's a small utility app, and this policy is deliberately short
+    to match.
+  </p>
+
+  <h2>The short version</h2>
+  <p>
+    This app does not collect, sell, or share your personal data. It has no account or
+    login system, no advertising, and no analytics. The only places any data ever goes
+    are: your own speaker (over your local WiFi), and TuneIn's public radio directory
+    when you search for a station. Both are described in detail below.
+  </p>
+
+  <h2>The three things this app actually sends or accesses</h2>
+
+  <h3>1. Location permission - used only to list nearby WiFi networks</h3>
+  <div class="card">
+    <p>
+      When setting up a new or factory-reset speaker, the app can show you a list of
+      nearby WiFi network names so you can pick your home network instead of typing it
+      in by hand. Android requires the Location permission (<code>ACCESS_FINE_LOCATION</code>)
+      before <strong>any</strong> app can read WiFi scan results - this is a
+      platform-wide restriction Android imposes on all apps, not a choice this app
+      makes, because WiFi scan data could theoretically be used to estimate physical
+      location.
+    </p>
+    <p>
+      This app does not use the permission for that purpose. Your location is
+      <strong>never recorded, stored, logged, or transmitted anywhere</strong> - not by
+      this app, and not to any third party. It's used only, in the moment, to populate
+      the network-name picker during speaker setup. If you'd rather not grant it, you
+      can decline and type your WiFi network name in manually instead.
+    </p>
+  </div>
+
+  <h3>2. Your home WiFi name and password - sent only to your own speaker</h3>
+  <div class="card">
+    <p>
+      During speaker setup, you enter your home WiFi network's name and password into
+      the app. That information is sent directly, over your local network,
+      <strong>only to your own physical speaker</strong> - specifically to the
+      temporary setup WiFi access point the speaker broadcasts while it has no home
+      network configured yet, which your phone connects to briefly during setup.
+    </p>
+    <p>
+      It is <strong>never sent to any server run by this app's developer, and never to
+      any other third party.</strong> Once your speaker confirms it has joined your
+      home network, this app has no further use for that password and does not retain
+      it for its own purposes.
+    </p>
+  </div>
+
+  <h3>3. Radio station search - sent to TuneIn</h3>
+  <div class="card">
+    <p>
+      If you use the app's radio station search, whatever text you type is sent to
+      <strong>TuneIn</strong> (<code>opml.radiotime.com</code>), a third-party public
+      radio-directory service, so it can look up matching stations. TuneIn is an
+      independent company, not affiliated with or operated by this app's developer.
+    </p>
+    <p>
+      This only happens when you actively search for a station. TuneIn's handling of
+      that request is governed by TuneIn's own privacy policy, not this one.
+    </p>
+  </div>
+
+  <h2>What this app does not do</h2>
+  <ul>
+    <li>No advertising SDKs.</li>
+    <li>No analytics or tracking SDKs of any kind.</li>
+    <li>No account, sign-in, or login system - there is nothing to create an account for.</li>
+    <li>No sale of data to anyone, for any reason - there is no data collected that could be sold.</li>
+    <li>No data sharing beyond the two flows above (your own speaker, and TuneIn when you search).</li>
+  </ul>
+
+  <h2>Other permissions</h2>
+  <p>
+    The app also requests a few other standard Android permissions needed to work on
+    your local network and play audio (e.g. WiFi/network state, notifications for media
+    playback controls). None of these are used to collect or transmit personal data
+    beyond what's described above.
+  </p>
+
+  <h2>Local storage</h2>
+  <p>
+    A few small settings and your speaker's name/IP address are saved on your own
+    device (using standard Android app storage) so the app can reconnect without
+    rescanning every time. This data stays on your device - it is not uploaded
+    anywhere.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If what this app does with data ever changes, this page will be updated to reflect
+    that, and the "Last updated" date above will change too.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy can be sent to:
+    <a href="mailto:eugene@airstaffs.com">eugene@airstaffs.com</a>
+  </p>
+
+  <footer>
+    SoundTech Air - Privacy Policy
+  </footer>
+
+</div>
+</body>
+</html>

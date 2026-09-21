@@ -1,6 +1,6 @@
 {
-    "name": "soundtouch_control",
-    "short_name": "soundtouch_control",
+    "name": "SoundTech Air",
+    "short_name": "SoundTech Air",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

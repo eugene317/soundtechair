@@ -1,4 +1,4 @@
-# soundtouch_control
+# SoundTech Air
 
 A new Flutter project.
 

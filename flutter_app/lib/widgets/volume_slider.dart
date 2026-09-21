@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../state/speaker_controller.dart';
 
 class VolumeSlider extends StatelessWidget {
-  const VolumeSlider({super.key});
+  final SpeakerSession session;
+
+  const VolumeSlider({super.key, required this.session});
 
   @override
   Widget build(BuildContext context) {
@@ -17,15 +19,15 @@ class VolumeSlider extends StatelessWidget {
               child: Slider(
                 min: 0,
                 max: 100,
-                value: controller.displayVolume.toDouble(),
+                value: session.displayVolume.toDouble(),
                 activeColor: const Color(0xFF22C55E),
-                onChanged: (v) => controller.onVolumeInput(v.round()),
-                onChangeEnd: (v) => controller.onVolumeChange(v.round()),
+                onChanged: (v) => controller.onVolumeInput(session, v.round()),
+                onChangeEnd: (v) => controller.onVolumeChange(session, v.round()),
               ),
             ),
             SizedBox(
               width: 28,
-              child: Text('${controller.displayVolume}', textAlign: TextAlign.right),
+              child: Text('${session.displayVolume}', textAlign: TextAlign.right),
             ),
           ],
         );
