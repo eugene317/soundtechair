@@ -26,10 +26,10 @@ class StationListItem {
 /// Grid tile visual style - `compact` is the small icon+title horizontal
 /// rectangle (TuneIn's dense station list); `card` is a bigger album-art-style
 /// tile (image on top, title below) for content where a larger thumbnail
-/// reads better, e.g. YouTube Music.
+/// reads better.
 enum StationGridStyle { compact, card }
 
-/// Shared rendering for both the TuneIn and YouTube search sections - with
+/// Shared rendering for the TuneIn station sections - with
 /// loading/empty/error micro-states matching index.html's
 /// station-container/.station-item. Renders as a scrollable vertical list by
 /// default, or as a non-scrolling multi-column grid (part of the page's own

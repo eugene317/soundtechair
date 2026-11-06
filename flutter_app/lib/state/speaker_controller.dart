@@ -1276,7 +1276,7 @@ class SpeakerController extends ChangeNotifier {
   }
 
   // ===========================================================================
-  // Global search (radio/YouTube) - shared results list, played onto an
+  // Global radio search - shared results list, played onto an
   // explicit target speaker.
   // ===========================================================================
 
