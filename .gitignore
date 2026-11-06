@@ -10,3 +10,6 @@ stream-cache/
 ffmpeg.exe
 yt-dlp.exe
 tools/cloudflared.exe
+
+# Local build output (archives, signing keys) - never commit
+build/

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
@@ -116,6 +117,15 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       return;
     }
     _deviceId = deviceId;
+    // iOS doesn't let third-party apps list nearby WiFi networks, so the
+    // network name is always typed in there.
+    if (Platform.isIOS) {
+      setState(() {
+        _manualEntry = true;
+        _step = _Step.form;
+      });
+      return;
+    }
     setState(() => _step = _Step.form);
     unawaited(_scanNetworks());
   }

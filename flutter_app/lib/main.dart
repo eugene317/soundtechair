@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,7 +16,8 @@ Future<void> main() async {
   // (audio_service's lock-screen player included) unless this is granted -
   // there's no other prompt for it anywhere else in this app, and silently
   // skipping it wouldn't fail loudly, it would just leave the player invisible.
-  await Permission.notification.request();
+  // iOS needs no notification permission for the lock-screen player.
+  if (Platform.isAndroid) await Permission.notification.request();
 
   // Created once, here, rather than via ChangeNotifierProvider's own lazy
   // create: callback - SoundTouchAudioHandler needs this EXACT instance
